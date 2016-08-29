@@ -62,12 +62,9 @@ int main()
 		loss_multiclass_log<
 		// Someone told me on IRC that using a softmax layer improves training...
 		softmax<
-		fc<65,
-		lstm_mut<100,
-		fc<100,
+		lstm_mut<65,
 		input_one_hot<char, 65>
-	>
-	>>>>;
+	>>>;
 
 	net_type net;
 
@@ -82,14 +79,14 @@ int main()
 	// size, where on a feedforward network, the number of gradients
 	// accumulated for each parameter is simply:
 	// s * o
-	trainer.set_learning_rate(1e-4);
-	trainer.set_learning_rate_shrink_factor(0.85);
-	trainer.set_min_learning_rate(1e-10);
+	trainer.set_learning_rate(1e-2);
+	trainer.set_learning_rate_shrink_factor(0.5);
+	trainer.set_min_learning_rate(1e-6);
 	trainer.set_iterations_without_progress_threshold(10000);
 
 	trainer.be_verbose();
 
-	//trainer.set_synchronization_file("shakespeare.sync", std::chrono::seconds(20));
+	trainer.set_synchronization_file("shakespeare.sync", std::chrono::seconds(20));
 	trainer.train(input, labels);
 
     net.clean();
