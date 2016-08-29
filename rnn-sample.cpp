@@ -8,16 +8,13 @@
 
 int main()
 {
-	feenableexcept(FE_INVALID   |
-		FE_DIVBYZERO);
-
 	std::vector<char> input;
 	std::vector<unsigned long> labels;
 	{
 		std::ifstream fd("tiny-shakespeare.txt");
 		fd.seekg(0, std::ios_base::end);
 		unsigned fileSize = fd.tellg();
-	    input.resize(fileSize - 1u);
+	    	input.resize(fileSize - 1u);
 		labels.resize(fileSize - 2u);
 
 		fd.seekg(0, std::ios_base::beg);
@@ -61,16 +58,19 @@ int main()
 	using net_type =
 		loss_multiclass_log<
 		// Someone told me on IRC that using a softmax layer improves training...
-		softmax<
-		lstm_mut<65,
+		//softmax<
+		fc<65,
+		lstm_mut<200,
+		fc<200,
 		input_one_hot<char, 65>
-	>>>;
+	//>
+	>>>>;
 
 	net_type net;
 
 	dnn_trainer<net_type, adam> trainer(net, adam(0.0005, 0.9, 0.999));
 
-	trainer.set_mini_batch_size(10);
+	trainer.set_mini_batch_size(1000);
 
 	// The training rate must be much smaller because the number of
 	// gradients accumulated for each parameter is:
@@ -79,9 +79,9 @@ int main()
 	// size, where on a feedforward network, the number of gradients
 	// accumulated for each parameter is simply:
 	// s * o
-	trainer.set_learning_rate(1e-2);
-	trainer.set_learning_rate_shrink_factor(0.5);
-	trainer.set_min_learning_rate(1e-6);
+	trainer.set_learning_rate(0.1);
+	trainer.set_learning_rate_shrink_factor(0.4);
+	trainer.set_min_learning_rate(1e-5);
 	trainer.set_iterations_without_progress_threshold(10000);
 
 	trainer.be_verbose();
@@ -89,22 +89,22 @@ int main()
 	trainer.set_synchronization_file("shakespeare.sync", std::chrono::seconds(20));
 	trainer.train(input, labels);
 
-    net.clean();
-    serialize("shakespeare_network.dat") << net;
+	net.clean();
+	serialize("shakespeare_network.dat") << net;
 
-    // Drop loss layer
-    /*auto &generator = net.subnet();
-    char prev = '\n';
-    for(unsigned i = 0; i < 500; ++i) {
-	    auto &l = generator(prev);
-	    const float *h = l.host();
-	    unsigned m = 0;
-	    double sum = h[0];
-	    for(unsigned j = 1; j < 65; ++j) {
-		if(h[j] > h[m])
-		    m = j;
-	    }
-	    std::cout << (prev = fmap[m]);
-    }
-    std::cout << std::endl;*/
+	// Drop loss layer
+	/*auto &generator = net.subnet();
+	char prev = '\n';
+	for(unsigned i = 0; i < 500; ++i) {
+		auto &l = generator(prev);
+		const float *h = l.host();
+		unsigned m = 0;
+		double sum = h[0];
+		for(unsigned j = 1; j < 65; ++j) {
+		    if(h[j] > h[m])
+			m = j;
+		}
+		std::cout << (prev = fmap[m]);
+	}
+	std::cout << std::endl;*/
 }
