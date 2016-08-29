@@ -429,12 +429,19 @@ public:
 	friend void serialize(const rnn_& net, std::ostream& out)
 	{
 		serialize("rnn_", out);
-		if(net.forward_nets.empty()) {
-			INTERNALS tmp;
-			serialize(tmp, out);
-		} else {
-			serialize(net.forward_nets[0], out);
-		}
+		serialize(net.sample_aliaser, out);
+
+		serialize(net.forward_nets, out);
+		serialize(net.forward_input, out);
+
+		serialize(net.trained_params, out);
+
+		serialize(net.remember_input, out);
+
+		serialize(net.sample_size, out);
+		serialize(net.params_size, out);
+
+		serialize(net.may_have_new_params, out);
 	}
 
 	friend void deserialize(rnn_& net, std::istream& in)
@@ -446,7 +453,19 @@ public:
 		if(net.forward_nets.empty()) {
 			net.forward_nets.resize(1);
 		}
-		deserialize(net.forward_nets[0], in);
+		deserialize(net.sample_aliaser, in);
+
+		deserialize(net.forward_nets, in);
+		deserialize(net.forward_input, in);
+
+		deserialize(net.trained_params, in);
+
+		deserialize(net.remember_input, in);
+
+		deserialize(net.sample_size, in);
+		deserialize(net.params_size, in);
+
+		deserialize(net.may_have_new_params, in);
 	}
 
 	friend std::ostream& operator<<(std::ostream& out, const rnn_& net)
