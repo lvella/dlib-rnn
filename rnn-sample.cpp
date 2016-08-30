@@ -7,13 +7,17 @@
 #include "input_one_hot.h"
 
 template <typename SUBNET>
-using rnn_type = lstm_mut1<200, SUBNET>;
+using rnn_type_h = lstm_mut1<256, SUBNET>;
+
+template <typename SUBNET>
+using rnn_type_l = lstm_mut3<256, SUBNET>;
+
 
 using net_type =
 	loss_multiclass_log<
 	fc<65,
-	rnn_type<
-	fc<200,
+	rnn_type_h<
+	rnn_type_l<
 	input_one_hot<char, 65>
 >>>>;
 
@@ -63,7 +67,9 @@ void run_test(char fmap[])
 	}
 
 	// Configure to not forget between evaluations
-	layer<rnn_type>(generator).layer_details()
+	layer<rnn_type_h>(generator).layer_details()
+		.set_batch_is_full_sequence(false);
+	layer<rnn_type_l>(generator).layer_details()
 		.set_batch_is_full_sequence(false);
 
 	char prev = '\n';
