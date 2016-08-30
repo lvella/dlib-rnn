@@ -322,6 +322,9 @@ public:
 		out_sample_aliaser(1, mem_k, mem_nr, mem_nc)
 	{
 		remember_input.set_size(1, mem_k, mem_nr, mem_nc);
+		dbg_count = 0;
+		dbg_sum = 0;
+		dbg_max = 0;
 	}
 
 	rnn_(const rnn_&) = default;
@@ -478,6 +481,27 @@ public:
 			// Remove the just used unfolded inner network, as
 			// it is no longer necessary.
 			forward_nets.pop_back();
+		}
+		{
+			size_t size = params_grad_out.size();
+			float *h = params_grad_out.host();
+			for(size_t i = 0; i < size; ++i)
+			{
+				if(h[i] > 1.0)
+					h[i] = 1.0;
+				else if (h[i] < -1.0)
+					h[i] = -1.0;
+
+				float v = std::fabs(h[i]);
+				if(v > dbg_max) {
+					dbg_max = v;
+				}
+				dbg_sum += v;
+				if(++dbg_count == 3000000) {
+					std::cout << "### mean: " << dbg_sum / dbg_count << ",       max: " << dbg_max << std::endl;
+					dbg_sum = dbg_max = dbg_count = 0;
+				}
+			}
 		}
 	}
 
@@ -660,33 +684,122 @@ private:
 
 	bool may_have_new_params;
 	bool batch_is_full_sequence;
+
+	size_t dbg_count;
+	long double dbg_sum;
+	float dbg_max;
 };
 
+template <unsigned long num_outputs, typename INTERNALS, typename SUBNET>
+using rnn = add_layer<rnn_<INTERNALS, num_outputs>, SUBNET>;
 
-// Attempt to implement the RNN MUT1, empirically found to be
-// better than ordinary LSTM in "An Empirical Exploration of
-// Recurrent Network Architectures" by Rafal Jozefowicz,
-// Wojciech Zaremba and Ilya Sutskever, given in:
+// Implementation the RNN's architectures given in "An Empirical
+// Exploration of Recurrent Network Architectures" by Rafal
+// Jozefowicz, Wojciech Zaremba and Ilya Sutskever, found in:
 // http://jmlr.org/proceedings/papers/v37/jozefowicz15.pdf
 //
-// tag1: Whr h + Br, used in r
-// tag2: Whh (h * r) + Bh, where r = sig(Whr h + Wxr x + Br)
-// tag3: z
-// tag4: First term of output: tanh(Whh (r * h) + tanh(x) + Bh) * z
+// Following is the formulation of MUT1, found in the paper to
+// be better than ordinary LSTM.
+//
+// This architecture requires that the input to be the same size of
+// the output, given that the vector tanh(x) which has the same size
+// as input x must be added to vector Bo, which has the same size as
+// output o.
+//
+// MUT1:
+// z = sigm(Wxz x + Bz)
+// r = sigm(Wxt x + Whr h + Br)
+// o = tanh(Who (r * h) + tanh(x) + Bo) * z
+//   + h * (1 - z)
+//
+// where:
+// x: network input at that time
+// h: network output remembered from previous evaluation
+// o: current network output, will became h on next evaluation
+//
+// The following is the equivalent of MUT1 but reordered as
+// implemented:
+//
+// o  = (t4 + h * (1 - t3))
+// t4 = (t3 * tanh(t2 + tanh(x)))
+// t3 = sigm(Wxz x + Bz)
+// t2 = Who (h * sigm(t1 + Wxr x)) + Bo
+// t1 = Whr h + Br
+//
 template <unsigned long num_outputs>
-using inner_lstm_mut_ =
-	add_prev4<mul_prev<tag_rnn_memory, one_minus<skip3< // ... + h * (1 - z)
-	    tag4<mul_prev<tag3, htan<add_prev<tag2, htan<skip_rnn_input< // z * tanh(Whh (h * sig(...)) + tanh(x) + Bh), first term of output
-		tag3<sig<fc<num_outputs, skip_rnn_input< // z
-		    tag2<fc<num_outputs, mul_prev<tag_rnn_memory, sig<add_prev1<fc_no_bias<num_outputs, skip_rnn_input< // Whh (h * sig(Whr h + Wxr x + Br)) + Bh
-			tag1<fc<num_outputs, // Whr h + Br, used in r
-			    rnn_subnet_base
-			>>
-		    >>>>>>>
-		>>>>
-	    >>>>>>
-	>>>>;
-
+using inner_lstm_mut1_ =
+	add_prev4<mul_prev<tag_rnn_memory, one_minus<skip3<
+	tag4<mul_prev<tag3, htan<add_prev<tag2, htan<skip_rnn_input<
+	tag3<sig<fc<num_outputs, skip_rnn_input<
+	tag2<fc<num_outputs, mul_prev<tag_rnn_memory, sig<add_prev1<fc_no_bias<num_outputs, skip_rnn_input<
+	tag1<fc<num_outputs,
+	rnn_subnet_base
+	>>>>>>>>>>>>>>>>>>>>>>>;
 
 template <unsigned long num_outputs, typename SUBNET>
-using lstm_mut = add_layer<rnn_<inner_lstm_mut_<num_outputs>, num_outputs>, SUBNET>;
+using lstm_mut1 = rnn<num_outputs, inner_lstm_mut1_<num_outputs>, SUBNET>;
+
+
+// MUT2 RNN architecture, as given in the paper.
+//
+// Due to term r * h, r is required to have the same size as h,
+// and due to term x in r, r has the same size as x, since h is
+// the output, this layout also requires x to be the size as output.
+//
+// MUT2:
+// z = sigm(Wxz x + Whz h + Bz)
+// r = sigm(x + Whr h + Br)
+// o = tanh(Who (r * h) + Wxo x + Bo) * z
+//   + h * (1 - z)
+//
+// Which translates to:
+//
+// o  = t1 + h * (1 - t2)
+// t1 = t2 * tanh(t4 + Wxo x + Bo)
+// t2 = sigm(t3 + Whz h + Bz)
+// t3 = Wxz x
+// t4 = Who (h * sigm(x + Whr h + Br))
+//
+template <unsigned long num_outputs>
+using inner_lstm_mut2_ =
+	add_prev1<mul_prev<tag_rnn_memory, one_minus<skip2<
+	tag1<mul_prev<tag2, htan<add_prev4<fc<num_outputs, skip_rnn_input<
+	tag2<sig<add_prev3<fc<num_outputs, skip_rnn_memory<
+	tag3<fc_no_bias<num_outputs, skip_rnn_input<
+	tag4<fc_no_bias<num_outputs, mul_prev<tag_rnn_memory, sig<add_prev<tag_rnn_input, fc<num_outputs,
+	rnn_subnet_base
+	>>>>>>>>>>>>>>>>>>>>>>>>;
+
+template <unsigned long num_outputs, typename SUBNET>
+using lstm_mut2 = rnn<num_outputs, inner_lstm_mut2_<num_outputs>, SUBNET>;
+
+// MUT3 RNN architecture, as given in the paper.
+//
+// MUT3:
+// z = sigm(Wxz x + Whz tanh(h) + Bz)
+// r = sigm(Wxr x + Whr h + Br)
+// o = tanh(Who (r * h) + Wxo x + Bo) * z
+//   + h * (1 - z)
+//
+// Which translates to:
+//
+// o  = t1 + h * (1 - t2)
+// t1 = t2 * tanh(t4 + Wxo x + Bo)
+// t2 = sigm(t3 + Wxz x + Bz)
+// t3 = Whz tanh(h)
+// t4 = Who (h * sigm(t5 + Wxr x + Br)
+// t5 = Wxr h
+//
+template <unsigned long num_outputs>
+using inner_lstm_mut3_ =
+	add_prev1<mul_prev<tag_rnn_memory, one_minus<skip2<
+	tag1<mul_prev<tag2, htan<add_prev4<fc<num_outputs, skip_rnn_input<
+	tag2<sig<add_prev3<fc<num_outputs, skip_rnn_input<
+	tag3<fc_no_bias<num_outputs, htan<skip_rnn_memory<
+	tag4<fc_no_bias<num_outputs, mul_prev<tag_rnn_memory, sig<add_prev5<fc<num_outputs, skip_rnn_input<
+	tag5<fc_no_bias<num_outputs,
+	rnn_subnet_base
+	>>>>>>>>>>>>>>>>>>>>>>>>>>>>;
+
+template <unsigned long num_outputs, typename SUBNET>
+using lstm_mut3 = rnn<num_outputs, inner_lstm_mut3_<num_outputs>, SUBNET>;
