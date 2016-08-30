@@ -22,10 +22,8 @@ public:
 	{
 		auto&& t1 = sub.get_output();
 		auto&& t2 = layer<tag>(sub).get_output();
-		output.set_size(std::max(t1.num_samples(),t2.num_samples()),
-						std::max(t1.k(),t2.k()),
-						std::max(t1.nr(),t2.nr()),
-						std::max(t1.nc(),t2.nc()));
+		output.set_size(t1.num_samples(), t1.k(), t1.nr(), t1.nc());
+
 		tt::multiply(false, output, t1, t2);
 	}
 
@@ -274,17 +272,17 @@ class dummy_input
 		serialize("dummy_input", out);
 	}
 
-    friend void deserialize(dummy_input& item, std::istream& in)
-    {
-        std::string version;
-        deserialize(version, in);
-        if (version != "dummy_input")
-                throw serialization_error("Unexpected version found while deserializing dummy_input.");
+	friend void deserialize(dummy_input& item, std::istream& in)
+	{
+		std::string version;
+		deserialize(version, in);
+		if (version != "dummy_input")
+			throw serialization_error("Unexpected version found while deserializing dummy_input.");
 	}
 
-    friend void to_xml(const dummy_input& item, std::ostream& out)
-    {
-        out << "<dummy_input/>";
+	friend void to_xml(const dummy_input& item, std::ostream& out)
+	{
+		out << "<dummy_input/>";
 	}
 };
 
@@ -345,7 +343,6 @@ public:
 		auto &in = sub.get_output();
 
 		// Setup sequence params
-		remember_input.set_size(1, in.k(), in.nr(), in.nc());
 		reset_sequence();
 
 		in_sample_size = in.k() * in.nr() * in.nc();
@@ -367,7 +364,10 @@ public:
 		auto &in = sub.get_output();
 		size_t num_samples = in.num_samples();
 
-		data_output.set_size(num_samples, in.k(), in.nr(), in.nc());
+		data_output.set_size(num_samples,
+			remember_input.k(),
+			remember_input.nr(),
+			remember_input.nc());
 
 		forward_nets.resize(1);
 		forward_nets.reserve(num_samples);
@@ -787,7 +787,7 @@ using lstm_mut2 = rnn<num_outputs, inner_lstm_mut2_<num_outputs>, SUBNET>;
 // t1 = t2 * tanh(t4 + Wxo x + Bo)
 // t2 = sigm(t3 + Wxz x + Bz)
 // t3 = Whz tanh(h)
-// t4 = Who (h * sigm(t5 + Wxr x + Br)
+// t4 = Who (h * sigm(t5 + Wxr x + Br))
 // t5 = Wxr h
 //
 template <unsigned long num_outputs>
