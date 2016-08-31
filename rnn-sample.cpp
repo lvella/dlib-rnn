@@ -2,6 +2,7 @@
 
 #include <vector>
 #include <fstream>
+#include <random>
 
 #include "rnn.h"
 #include "input_one_hot.h"
@@ -56,11 +57,20 @@ void run_test(char fmap[])
 	// Net with loss layer replaced with softmax
 	softmax<net_type::subnet_type> generator;
 
-	// Load the in-training network
+	// Load the network
 	{
 		net_type net;
-		dnn_trainer<net_type, adam> trainer(net);
-		trainer.set_synchronization_file("shakespeare.sync");
+
+		try {
+			// First, try to open the fully trained network
+			deserialize("shakespeare_network.dat") >> net;
+			std::cerr << "Using fully trained network." << std::endl;
+		} catch(dlib::serialization_error&) {
+			// Failing, try to open the partially trained network
+			dnn_trainer<net_type, adam> trainer(net);
+			trainer.set_synchronization_file("shakespeare.sync");
+			std::cerr << "Using partially trained network." << std::endl;
+		}
 
 		// Replace loss layer with softmax
 		generator.subnet() = net.subnet();
@@ -72,17 +82,24 @@ void run_test(char fmap[])
 	layer<rnn_type_l>(generator).layer_details()
 		.set_batch_is_full_sequence(false);
 
+	std::random_device rd;
+
+	// Start generation from newline character
 	char prev = '\n';
 	for(unsigned i = 0; i < 100; ++i) {
+		double rnd =
+			std::generate_canonical<double, std::numeric_limits<double>::digits>(rd);
+
 		auto &l = generator(prev);
 		const float *h = l.host();
-		unsigned m = 0;
-		double sum = h[0];
-		for(unsigned j = 1; j < 65; ++j) {
-		    if(h[j] > h[m])
-			m = j;
+		double sum = 0.0f;
+		unsigned j;
+		for(j = 0; j < 64; ++j) {
+			sum += h[j];
+			if(rnd <= sum)
+				break;
 		}
-		std::cout << (prev = fmap[m]);
+		std::cout << (prev = fmap[j]);
 	}
 	std::cout << std::endl;
 }
@@ -146,16 +163,17 @@ int main(int argc, char *argv[])
 	net_type net;
 
 	if(argc > 1) {
-		if(strcmp(argv[1], "--run-test") == 0) {
-			std::cout << "Running.\n" << std::endl;
+		if(strcmp(argv[1], "sample") == 0) {
+			std::cerr << "Sampling.\n" << std::endl;
 			run_test(fmap);
-		} else {
-			std::cout << "Error: invalid command." << std::endl;
+			return 0;
+		} else if (strcmp(argv[1], "train") != 0) {
+			std::cerr << "Error: invalid command.\nChoose one of\n " << argv[0] << " sample\n " << argv[0] << " train" << std::endl;
 			return -1;
 		}
-	} else {
-		std::cout << "Training.\n" << std::endl;
-		train(input, labels);
 	}
+
+	std::cerr << "Training.\n" << std::endl;
+	train(input, labels);
 }
 
