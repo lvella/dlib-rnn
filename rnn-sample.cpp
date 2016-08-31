@@ -8,10 +8,10 @@
 #include "input_one_hot.h"
 
 template <typename SUBNET>
-using rnn_type_h = lstm_mut1<256, SUBNET>;
+using rnn_type_h = lstm_mut1<512, SUBNET>;
 
 template <typename SUBNET>
-using rnn_type_l = lstm_mut3<256, SUBNET>;
+using rnn_type_l = lstm_mut3<512, SUBNET>;
 
 
 using net_type =
@@ -22,30 +22,45 @@ using net_type =
 	input_one_hot<char, 65>
 >>>>;
 
+
 void train(std::vector<char>& input, std::vector<unsigned long>& labels)
 {
 	net_type net;
-
 	dnn_trainer<net_type, adam> trainer(net, adam(0.0005, 0.9, 0.999));
 
-	trainer.set_mini_batch_size(1000);
+	//trainer.set_mini_batch_size(70);
 
-	// The training rate must be much smaller because the number of
-	// gradients accumulated for each parameter is:
-	// (s + s²) / 2 * o
-	// where s is the sequence size (mini batch size), and o is the output
-	// size, where on a feedforward network, the number of gradients
-	// accumulated for each parameter is simply:
-	// s * o
-	//trainer.set_learning_rate(0.1);
+	trainer.set_learning_rate_shrink_factor(0.6);
+	//trainer.set_learning_rate(0.9);
+	//trainer.set_min_learning_rate(1e-9);
 	//trainer.set_learning_rate_shrink_factor(0.4);
-	//trainer.set_min_learning_rate(1e-5);
 	//trainer.set_iterations_without_progress_threshold(10000);
 
 	trainer.be_verbose();
 
 	trainer.set_synchronization_file("shakespeare.sync", std::chrono::seconds(120));
-	trainer.train(input, labels);
+
+	std::mt19937 gen(std::random_device{}());
+	std::uniform_int_distribution<unsigned> size(10, 350);
+	std::uniform_int_distribution<unsigned> start(0, input.size() - 11);
+
+	std::vector<char> b_input;
+	std::vector<unsigned long> b_labels;
+	do {
+		unsigned i = start(gen);
+		unsigned e = i + size(gen);
+		if(e > input.size() - 1) {
+			e = input.size() - 1;
+		}
+
+		b_input.resize(e - i);
+		std::copy(input.begin() + i, input.begin() + e, b_input.begin());
+
+		b_labels.resize(e - i);
+		std::copy(labels.begin() + i, labels.begin() + e, b_labels.begin());
+
+        	trainer.train_one_step(b_input, b_labels);
+	} while(trainer.get_learning_rate() >= 1e-7);
 
 	net.clean();
 	serialize("shakespeare_network.dat") << net;

@@ -484,6 +484,14 @@ public:
 			// it is no longer necessary.
 			forward_nets.pop_back();
 		}
+
+		// Hack that will work only when all layers in the network are RNN.
+		// This step will normalize the gradient to a value proportional
+		// to the number of samples, for RNN accumulated gradients doesn't
+		// scale linearly with the number of samples, but instead it
+		// scales exponentially.
+		params_grad_out *= 2.0 / (1.0 + in.num_samples());
+
 		{
 			size_t size = params_grad_out.size();
 			float *h = params_grad_out.host();
@@ -499,7 +507,7 @@ public:
 					dbg_max = v;
 				}
 				dbg_sum += v;
-				if(++dbg_count == 3000000) {
+				if(++dbg_count == 64000000) {
 					std::cout << "### mean: " << dbg_sum / dbg_count << ",       max: " << dbg_max << std::endl;
 					dbg_sum = dbg_max = dbg_count = 0;
 				}
