@@ -236,10 +236,12 @@ public:
 
 
 	private:
-		dlib::resizable_tensor params; // unused
+	dlib::resizable_tensor params; // unused
 
-		dlib::resizable_tensor output;
-		dlib::resizable_tensor gradient;
+	// TODO: if ever we don't need to unroll the DAG, use instead:
+	// std::reference_wrapper<const tensor> output;
+	dlib::resizable_tensor output;
+	dlib::resizable_tensor gradient;
 };
 
 template <typename SUBNET>
@@ -803,3 +805,36 @@ using inner_lstm_mut3_ =
 
 template <unsigned long num_outputs, typename SUBNET>
 using lstm_mut3 = rnn<num_outputs, inner_lstm_mut3_<num_outputs>, SUBNET>;
+
+// Gate Recurrent Unit (GRU), as given in the paper.
+//
+// GRU:
+// r = sigm(Wxr x + Whr h + Br)
+// z = sigm(Wxz x + Whz h + Bz)
+// g = tanh(Wxg x + Whg (r * h) + Bg)
+// o = z * h + (1 - z) * g
+//
+// Which is, equivalently, implemented as:
+//
+// o  = t1 + t2 * tanh(t5 + Wxg x + Bg)
+// t1 = h * t3
+// t2 = 1 - t3
+// t3 = sigm(t4 + Wxz x + Bz)
+// t4 = Whz h
+// t5 = Whg (h * sigm(t6 + Wxr x + Br))
+// t6 = Whr h
+//
+template <unsigned long num_outputs>
+using inner_gru_ =
+	add_prev1<mul_prev<tag2, htan<add_prev5<fc<num_outputs, skip_rnn_input<
+	tag1<mul_prev<tag_rnn_memory, skip3<
+	tag2<one_minus<
+	tag3<sig<add_prev4<fc<num_outputs, skip_rnn_input<
+	tag4<fc_no_bias<num_outputs, skip_rnn_memory<
+	tag5<fc_no_bias<num_outputs, sig<add_prev6<fc<num_outputs, skip_rnn_input<
+	tag6<fc_no_bias<num_outputs,
+	rnn_subnet_base
+	>>>>>>>>>>>>>>>>>>>>>>>>>>>;
+
+template <unsigned long num_outputs, typename SUBNET>
+using gru = rnn<num_outputs, inner_gru_<num_outputs>, SUBNET>;
