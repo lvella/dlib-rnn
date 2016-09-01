@@ -8,20 +8,17 @@
 #include "input_one_hot.h"
 
 template <typename SUBNET>
-using rnn_type_h = lstm_mut1<512, SUBNET>;
-
-template <typename SUBNET>
-using rnn_type_l = lstm_mut3<512, SUBNET>;
+using rnn_type = lstm_mut1<512, SUBNET>;
 
 
 using net_type =
 	loss_multiclass_log<
 	fc<65,
-	rnn_type_h<
-	rnn_type_l<
+	rnn_type<
+	rnn_type<
+	fc<512,
 	input_one_hot<char, 65>
->>>>;
-
+>>>>>;
 
 void train(std::vector<char>& input, std::vector<unsigned long>& labels)
 {
@@ -31,24 +28,23 @@ void train(std::vector<char>& input, std::vector<unsigned long>& labels)
 	//trainer.set_mini_batch_size(70);
 
 	trainer.set_learning_rate_shrink_factor(0.6);
-	//trainer.set_learning_rate(0.9);
+	trainer.set_learning_rate(0.01);
 	//trainer.set_min_learning_rate(1e-9);
 	//trainer.set_learning_rate_shrink_factor(0.4);
-	//trainer.set_iterations_without_progress_threshold(10000);
+	trainer.set_iterations_without_progress_threshold(180);
 
 	trainer.be_verbose();
 
 	trainer.set_synchronization_file("shakespeare.sync", std::chrono::seconds(120));
 
 	std::mt19937 gen(std::random_device{}());
-	std::uniform_int_distribution<unsigned> size(10, 350);
-	std::uniform_int_distribution<unsigned> start(0, input.size() - 11);
+	std::uniform_int_distribution<unsigned> start(0, input.size() - 101);
 
 	std::vector<char> b_input;
 	std::vector<unsigned long> b_labels;
-	do {
+	for(;;) {
 		unsigned i = start(gen);
-		unsigned e = i + size(gen);
+		unsigned e = i + 300;
 		if(e > input.size() - 1) {
 			e = input.size() - 1;
 		}
@@ -60,11 +56,10 @@ void train(std::vector<char>& input, std::vector<unsigned long>& labels)
 		std::copy(labels.begin() + i, labels.begin() + e, b_labels.begin());
 
         	trainer.train_one_step(b_input, b_labels);
-	} while(trainer.get_learning_rate() >= 1e-7);
-
+	}
+	trainer.get_net();
 	net.clean();
 	serialize("shakespeare_network.dat") << net;
-
 }
 
 void run_test(char fmap[])
@@ -92,10 +87,9 @@ void run_test(char fmap[])
 	}
 
 	// Configure to not forget between evaluations
-	layer<rnn_type_h>(generator).layer_details()
-		.set_batch_is_full_sequence(false);
-	layer<rnn_type_l>(generator).layer_details()
-		.set_batch_is_full_sequence(false);
+	auto & rnn_layer = layer<rnn_type>(generator);
+	rnn_layer.layer_details().set_batch_is_full_sequence(false);
+	rnn_layer.subnet().layer_details().set_batch_is_full_sequence(false);
 
 	std::random_device rd;
 

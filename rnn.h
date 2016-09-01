@@ -247,6 +247,139 @@ public:
 template <typename SUBNET>
 using constant = add_layer<constant_, SUBNET>;
 
+/* A fc_ layer specialization where bias is initialized with a value 2,
+ * useful as input for forget layer in a LSTM, where this high value
+ * would saturate sigmoid function to 1.
+ */
+template <unsigned long num_outputs_>
+class fc_high_bias_:
+	public fc_<num_outputs_, FC_HAS_BIAS>
+{
+	public:
+	template <typename SUBNET>
+	void setup (const SUBNET& sub)
+	{
+		fc_<num_outputs_, FC_HAS_BIAS>::setup(sub);
+		this->get_biases() = 2.0f;
+	}
+};
+
+template <unsigned long num_outputs, typename SUBNET>
+using fc_high_bias = add_layer<fc_high_bias_<num_outputs>, SUBNET>;
+
+enum split_side
+{
+	SPLIT_LEFT = 0,
+	SPLIT_RIGHT = 1
+};
+
+template <split_side SIDE>
+class split_
+{
+public:
+	template <typename SUBNET>
+	void setup (const SUBNET& sub)
+	{
+		auto &in = sub.get_output();
+		assert(in.k() % 2 == 0);
+		out_sample_size = in.k() / 2;
+	}
+
+	template <typename SUBNET>
+	void forward(const SUBNET& sub, dlib::resizable_tensor& data_output)
+	{
+		auto &in = sub.get_output();
+
+		size_t num_samples = in.num_samples();
+		data_output.set_size(num_samples, out_sample_size, in.nr(), in.nc());
+
+		const float *in_data = in.host();
+		float *out_data = data_output.host_write_only();
+
+		for(size_t s = 0; s < num_samples; ++s) {
+			const float *in = &in_data[(s * 2 + size_t(SIDE)) * out_sample_size];
+			float *out = &out_data[s * out_sample_size];
+			std::copy(in, in + out_sample_size, out);
+		}
+	}
+
+	template <typename SUBNET>
+	void backward(
+	    const tensor& gradient_input,
+	    SUBNET& sub,
+	    tensor& /* params_grad */)
+	{
+		auto &grad_out = sub.get_gradient_input();
+
+		const float *in_data = gradient_input.host();
+		float *out_data = grad_out.host();
+
+		size_t num_samples = gradient_input.num_samples();
+
+		for(size_t s = 0; s < num_samples; ++s) {
+			const float *in = &in_data[s * out_sample_size];
+			float *out = &out_data[(s * 2 + size_t(SIDE)) * out_sample_size];
+			for(size_t i = 0; i < out_sample_size; ++i) {
+				out[i] += in[i];
+			}
+		}
+	}
+
+	const tensor& get_layer_params() const
+	{
+		return params;
+	}
+
+	tensor& get_layer_params()
+	{
+		return params;
+	}
+
+	friend void serialize(const split_& , std::ostream& out)
+	{
+		serialize("split_", out);
+		serialize(int(SIDE), out);
+	}
+
+	friend void deserialize(split_& , std::istream& in)
+	{
+		std::string version;
+		deserialize(version, in);
+		if (version != "split_")
+			throw serialization_error("Unexpected version '"+version+"' found while deserializing split_.");
+		int side = 0;
+		deserialize(side, in);
+		if (SIDE != split_side(side))
+			throw serialization_error("Wrong side found while deserializing split_");
+	}
+
+	friend std::ostream& operator<<(std::ostream& out, const split_& item)
+	{
+		out << "split_" << side_str();
+		return out;
+	}
+
+	friend void to_xml(const split_& item, std::ostream& out)
+	{
+		out << "<split_" << side_str() << " />\n";
+	}
+
+private:
+	static const char* side_str()
+	{
+		return (SIDE == SPLIT_LEFT) ? "left" : "right";
+	}
+
+	size_t out_sample_size;
+
+	dlib::resizable_tensor params; // unused
+};
+
+template <typename SUBNET>
+using split_left = add_layer<split_<SPLIT_LEFT>, SUBNET>;
+
+template <typename SUBNET>
+using split_right = add_layer<split_<SPLIT_RIGHT>, SUBNET>;
 
 /* An implementation of EXAMPLE_INPUT_LAYER that
  * does nothing. Meant to be used as input of
@@ -713,13 +846,13 @@ using rnn = add_layer<rnn_<INTERNALS, num_outputs>, SUBNET>;
 //
 // This architecture requires that the input to be the same size of
 // the output, given that the vector tanh(x) which has the same size
-// as input x must be added to vector Bo, which has the same size as
-// output o.
+// as input x must be added to vector Bh, which has the same size as
+// output h.
 //
 // MUT1:
 // z = sigm(Wxz x + Bz)
 // r = sigm(Wxt x + Whr h + Br)
-// o = tanh(Who (r * h) + tanh(x) + Bo) * z
+// h ← tanh(Whh (r * h) + tanh(x) + Bh) * z
 //   + h * (1 - z)
 //
 // where:
@@ -733,7 +866,7 @@ using rnn = add_layer<rnn_<INTERNALS, num_outputs>, SUBNET>;
 // o  = (t4 + h * (1 - t3))
 // t4 = (t3 * tanh(t2 + tanh(x)))
 // t3 = sigm(Wxz x + Bz)
-// t2 = Who (h * sigm(t1 + Wxr x)) + Bo
+// t2 = Whh (h * sigm(t1 + Wxr x)) + Bh
 // t1 = Whr h + Br
 //
 template <unsigned long num_outputs>
@@ -759,16 +892,16 @@ using lstm_mut1 = rnn<num_outputs, inner_lstm_mut1_<num_outputs>, SUBNET>;
 // MUT2:
 // z = sigm(Wxz x + Whz h + Bz)
 // r = sigm(x + Whr h + Br)
-// o = tanh(Who (r * h) + Wxo x + Bo) * z
+// h ← tanh(Whh (r * h) + Wxh x + Bh) * z
 //   + h * (1 - z)
 //
 // Which translates to:
 //
 // o  = t1 + h * (1 - t2)
-// t1 = t2 * tanh(t4 + Wxo x + Bo)
+// t1 = t2 * tanh(t4 + Wxh x + Bh)
 // t2 = sigm(t3 + Whz h + Bz)
 // t3 = Wxz x
-// t4 = Who (h * sigm(x + Whr h + Br))
+// t4 = Whh (h * sigm(x + Whr h + Br))
 //
 template <unsigned long num_outputs>
 using inner_lstm_mut2_ =
@@ -788,16 +921,16 @@ using lstm_mut2 = rnn<num_outputs, inner_lstm_mut2_<num_outputs>, SUBNET>;
 // MUT3:
 // z = sigm(Wxz x + Whz tanh(h) + Bz)
 // r = sigm(Wxr x + Whr h + Br)
-// o = tanh(Who (r * h) + Wxo x + Bo) * z
+// h ← tanh(Whh (r * h) + Wxh x + Bh) * z
 //   + h * (1 - z)
 //
 // Which translates to:
 //
 // o  = t1 + h * (1 - t2)
-// t1 = t2 * tanh(t4 + Wxo x + Bo)
+// t1 = t2 * tanh(t4 + Wxh x + Bh)
 // t2 = sigm(t3 + Wxz x + Bz)
 // t3 = Whz tanh(h)
-// t4 = Who (h * sigm(t5 + Wxr x + Br))
+// t4 = Whh (h * sigm(t5 + Wxr x + Br))
 // t5 = Wxr h
 //
 template <unsigned long num_outputs>
@@ -819,17 +952,17 @@ using lstm_mut3 = rnn<num_outputs, inner_lstm_mut3_<num_outputs>, SUBNET>;
 // GRU:
 // r = sigm(Wxr x + Whr h + Br)
 // z = sigm(Wxz x + Whz h + Bz)
-// g = tanh(Wxg x + Whg (r * h) + Bg)
-// o = z * h + (1 - z) * g
+// g = tanh(Wxh x + Whh (r * h) + Bh)
+// h ← z * h + (1 - z) * g
 //
 // Which is, equivalently, implemented as:
 //
-// o  = t1 + t2 * tanh(t5 + Wxg x + Bg)
+// o  = t1 + t2 * tanh(t5 + Wxh x + Bh)
 // t1 = h * t3
 // t2 = 1 - t3
 // t3 = sigm(t4 + Wxz x + Bz)
 // t4 = Whz h
-// t5 = Whg (h * sigm(t6 + Wxr x + Br))
+// t5 = Whh (h * sigm(t6 + Wxr x + Br))
 // t6 = Whr h
 //
 template <unsigned long num_outputs>
@@ -846,3 +979,51 @@ using inner_gru_ =
 
 template <unsigned long num_outputs, typename SUBNET>
 using gru = rnn<num_outputs, inner_gru_<num_outputs>, SUBNET>;
+
+// Needed for next network.
+template <typename SUBNET> using tag11 = add_tag_layer<11, SUBNET>;
+
+// Long Short-Term Memory (LSTM), as given in the paper.
+//
+// LSTM:
+// i = tanh(Wxi x + Whi h + Bi)
+// j = sigm(Wxj x + Whj h + Bj)
+// f = sigm(Wxf x + Whf h + Bf)
+// o = tanh(Wxo x + Who h + Bo)
+// c ← c * f + i * j
+// h ← tanh(c) * o
+//
+// which translates to:
+//
+// o   = t1, t11
+// t11 = t7 * tanh(t1)
+// t1  = t3 + t5 * sigm(t2 + Whj t9 + Bj)
+// t2  = Wxj x
+// t3  = t10 * sigm(t4 + Whf t9 + Bf)
+// t4  = Wxf x
+// t5  = tanh(t6 + Whi t9 + Bi)
+// t6  = Wxi x
+// t7  = tanh(t8 + Who t9 + Bo)
+// t8  = Wxo x
+// t9  = (c, h)[1]
+// t10 = (c, h)[0]
+//
+template <unsigned long num_outputs>
+using inner_lstm_ =
+	concat2<tag1, tag11,
+	tag11<mul_prev<tag7, htan<skip1<
+	tag1<add_prev3<mul_prev<tag5, sig<add_prev2<fc<num_outputs, skip9<
+	tag2<fc_no_bias<num_outputs, skip_rnn_input<
+	tag3<mul_prev<tag10, sig<add_prev4<fc_high_bias<num_outputs, skip9<
+	tag4<fc_no_bias<num_outputs, skip_rnn_input<
+	tag5<htan<mul_prev<tag6, fc<num_outputs, skip9<
+	tag6<fc_no_bias<num_outputs, skip_rnn_input<
+	tag7<htan<mul_prev<tag8, fc<num_outputs, skip9<
+	tag8<fc_no_bias<num_outputs, skip_rnn_input<
+	tag9<split_right<skip_rnn_memory<
+	tag10<split_left<
+	rnn_subnet_base
+	>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>;
+
+template <unsigned long num_outputs, typename SUBNET>
+using lstm = split_right<rnn<2 * num_outputs, inner_lstm_<num_outputs>, SUBNET>>;
