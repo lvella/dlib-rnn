@@ -62,7 +62,7 @@ void train(std::vector<char>& input, std::vector<unsigned long>& labels)
 	serialize("shakespeare_network.dat") << net;
 }
 
-void run_test(char fmap[])
+void run_test(int label_map[], char fmap[])
 {
 	// Net with loss layer replaced with softmax
 	softmax<net_type::subnet_type> generator;
@@ -94,7 +94,7 @@ void run_test(char fmap[])
 	std::random_device rd;
 
 	// Start generation from newline character
-	char prev = '\n';
+	int prev = label_map['\n'];
 	for(unsigned i = 0; i < 100; ++i) {
 		double rnd =
 			std::generate_canonical<double, std::numeric_limits<double>::digits>(rd);
@@ -108,7 +108,8 @@ void run_test(char fmap[])
 			if(rnd <= sum)
 				break;
 		}
-		std::cout << (prev = fmap[j]);
+		std::cout << fmap[j];
+		prev = j;
 	}
 	std::cout << std::endl;
 }
@@ -174,7 +175,7 @@ int main(int argc, char *argv[])
 	if(argc > 1) {
 		if(strcmp(argv[1], "sample") == 0) {
 			std::cerr << "Sampling.\n" << std::endl;
-			run_test(fmap);
+			run_test(label_map, fmap);
 			return 0;
 		} else if (strcmp(argv[1], "train") != 0) {
 			std::cerr << "Error: invalid command.\nChoose one of\n " << argv[0] << " sample\n " << argv[0] << " train" << std::endl;
