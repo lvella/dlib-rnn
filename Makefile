@@ -1,5 +1,5 @@
-#FLAGS = -O3 -flto -march=native -mtune=native
-FLAGS = -g
+FLAGS = -O3 -flto=8 -march=native -mtune=native
+#FLAGS = -g
 
 rnn-sample: rnn-sample.o
 	g++ -o rnn-sample rnn-sample.o `pkg-config dlib-1 --libs` -std=c++14 $(FLAGS)
