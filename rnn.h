@@ -81,7 +81,7 @@ class one_minus_
 {
 public:
 	template <typename SUBNET>
-    void setup (const SUBNET& /* sub */)
+	void setup (const SUBNET& /* sub */)
 	{}
 
 	void forward_inplace(const tensor& data_input, tensor& data_output)
@@ -335,13 +335,14 @@ public:
 		return params;
 	}
 
-	friend void serialize(const split_& , std::ostream& out)
+	friend void serialize(const split_& net, std::ostream& out)
 	{
 		serialize("split_", out);
 		serialize(int(SIDE), out);
+		serialize(net.out_sample_size, out);
 	}
 
-	friend void deserialize(split_& , std::istream& in)
+	friend void deserialize(split_& net, std::istream& in)
 	{
 		std::string version;
 		deserialize(version, in);
@@ -351,6 +352,7 @@ public:
 		deserialize(side, in);
 		if (SIDE != split_side(side))
 			throw serialization_error("Wrong side found while deserializing split_");
+		deserialize(net.out_sample_size, in);
 	}
 
 	friend std::ostream& operator<<(std::ostream& out, const split_& item)
@@ -630,10 +632,10 @@ public:
 			float *h = params_grad_out.host();
 			for(size_t i = 0; i < size; ++i)
 			{
-				if(h[i] > 1.0)
-					h[i] = 1.0;
-				else if (h[i] < -1.0)
-					h[i] = -1.0;
+				if(h[i] > 5.0)
+					h[i] = 5.0;
+				else if (h[i] < -5.0)
+					h[i] = -5.0;
 
 				float v = std::fabs(h[i]);
 				if(v > dbg_max) {
