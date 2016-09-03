@@ -8,17 +8,17 @@
 #include "input_one_hot.h"
 
 template <typename SUBNET>
-using rnn_type = lstm_mut1<512, SUBNET>;
+using rnn_type = lstm<128, SUBNET>;
 
+const unsigned ab_size = 64;
 
 using net_type =
 	loss_multiclass_log<
-	fc<65,
+	fc<ab_size,
 	rnn_type<
 	rnn_type<
-	fc<512,
-	input_one_hot<char, 65>
->>>>>;
+	input_one_hot<char, ab_size>
+>>>>;
 
 void train(std::vector<char>& input, std::vector<unsigned long>& labels)
 {
@@ -27,35 +27,45 @@ void train(std::vector<char>& input, std::vector<unsigned long>& labels)
 
 	//trainer.set_mini_batch_size(70);
 
-	trainer.set_learning_rate_shrink_factor(0.6);
-	trainer.set_learning_rate(0.01);
+	trainer.set_learning_rate_shrink_factor(1.0);
+	trainer.set_learning_rate(0.002);
 	//trainer.set_min_learning_rate(1e-9);
 	//trainer.set_learning_rate_shrink_factor(0.4);
-	trainer.set_iterations_without_progress_threshold(180);
+	//trainer.set_iterations_without_progress_threshold(180);
 
 	trainer.be_verbose();
 
 	trainer.set_synchronization_file("shakespeare.sync", std::chrono::seconds(120));
 
-	std::mt19937 gen(std::random_device{}());
-	std::uniform_int_distribution<unsigned> start(0, input.size() - 101);
+	std::vector<unsigned> slices(input.size() / 50);
+	for(unsigned i = 0; i < slices.size(); ++i) {
+		slices[i] = i * 50;
+	}
+	{
+		std::mt19937 gen(std::random_device{}());
+		std::shuffle(slices.begin(), slices.end(), gen);
+	}
 
 	std::vector<char> b_input;
 	std::vector<unsigned long> b_labels;
-	for(;;) {
-		unsigned i = start(gen);
-		unsigned e = i + 300;
-		if(e > input.size() - 1) {
-			e = input.size() - 1;
+	for(unsigned k = 0; k < 10; ++k) { // Reductions
+		for(unsigned j = 0; j < 5; ++j) { // Epochs per reduction
+			for(unsigned i: slices) { // Full epoch
+				unsigned e = i + 50;
+				if(e > input.size() - 1) {
+					e = input.size() - 1;
+				}
+
+				b_input.resize(e - i);
+				std::copy(input.begin() + i, input.begin() + e, b_input.begin());
+
+				b_labels.resize(e - i);
+				std::copy(labels.begin() + i, labels.begin() + e, b_labels.begin());
+
+				trainer.train_one_step(b_input, b_labels);
+			}
 		}
-
-		b_input.resize(e - i);
-		std::copy(input.begin() + i, input.begin() + e, b_input.begin());
-
-		b_labels.resize(e - i);
-		std::copy(labels.begin() + i, labels.begin() + e, b_labels.begin());
-
-        	trainer.train_one_step(b_input, b_labels);
+		trainer.set_learning_rate(0.5 * trainer.get_learning_rate());
 	}
 	trainer.get_net();
 	net.clean();
@@ -74,12 +84,13 @@ void run_test(int label_map[], char fmap[])
 		try {
 			// First, try to open the fully trained network
 			deserialize("shakespeare_network.dat") >> net;
-			std::cerr << "Using fully trained network." << std::endl;
+			std::cerr << "Using fully trained network.\n" << std::endl;
 		} catch(dlib::serialization_error&) {
 			// Failing, try to open the partially trained network
 			dnn_trainer<net_type, adam> trainer(net);
 			trainer.set_synchronization_file("shakespeare.sync");
-			std::cerr << "Using partially trained network." << std::endl;
+			std::cerr << "Using partially trained network.\n" << std::endl;
+			trainer.get_net();
 		}
 
 		// Replace loss layer with softmax
@@ -87,9 +98,9 @@ void run_test(int label_map[], char fmap[])
 	}
 
 	// Configure to not forget between evaluations
-	auto & rnn_layer = layer<rnn_type>(generator);
+	auto & rnn_layer = layer<split_right>(generator).subnet();
 	rnn_layer.layer_details().set_batch_is_full_sequence(false);
-	rnn_layer.subnet().layer_details().set_batch_is_full_sequence(false);
+	rnn_layer.subnet().subnet().layer_details().set_batch_is_full_sequence(false);
 
 	std::random_device rd;
 
@@ -103,7 +114,7 @@ void run_test(int label_map[], char fmap[])
 		const float *h = l.host();
 		double sum = 0.0f;
 		unsigned j;
-		for(j = 0; j < 64; ++j) {
+		for(j = 0; j < ab_size - 1; ++j) {
 			sum += h[j];
 			if(rnd <= sum)
 				break;
@@ -143,7 +154,7 @@ int main(int argc, char *argv[])
 
 	unsigned label_count;
 	int label_map[256];
-	char fmap[65];
+	char fmap[ab_size];
 	std::fill(&label_map[0], &label_map[256], -1);
 
 	label_map[input[0]] = 0;
@@ -168,13 +179,13 @@ int main(int argc, char *argv[])
 	} else {
 		labels.back() = label_map[labels.back()];
 	}
-	assert(label_count == 65);
+	assert(label_count == ab_size);
 
 	net_type net;
 
 	if(argc > 1) {
 		if(strcmp(argv[1], "sample") == 0) {
-			std::cerr << "Sampling.\n" << std::endl;
+			std::cerr << "Sampling." << std::endl;
 			run_test(label_map, fmap);
 			return 0;
 		} else if (strcmp(argv[1], "train") != 0) {
@@ -183,7 +194,7 @@ int main(int argc, char *argv[])
 		}
 	}
 
-	std::cerr << "Training.\n" << std::endl;
+	std::cerr << "Training." << std::endl;
 	train(input, labels);
 }
 
