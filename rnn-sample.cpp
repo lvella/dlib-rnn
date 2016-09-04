@@ -66,7 +66,7 @@ void train(std::vector<char>& input, std::vector<unsigned long>& labels)
 			trainer.train_one_step(b_input, b_labels);
 			std::shuffle(slices.begin(), slices.end(), gen);
 		}
-		j = j % input.size();
+		j = j % slices.size();
 		trainer.set_learning_rate(0.5 * trainer.get_learning_rate());
 	}
 	trainer.get_net();
