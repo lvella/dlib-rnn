@@ -3,18 +3,6 @@
 template <typename T, size_t NUM_CLASSES>
 class input_one_hot
 {
-	/*!
-		WHAT THIS OBJECT REPRESENTS
-			Each deep neural network model in dlib begins with an input layer. The job
-			of the input layer is to convert an input_type into a tensor.  Nothing more
-			and nothing less.
-
-			Note that there is no dlib::EXAMPLE_INPUT_LAYER type.  It is shown here
-			purely to document the interface that an input layer object must implement.
-			If you are using some kind of image or matrix object as your input_type
-			then you can use the provided dlib::input layer defined below.  Otherwise,
-			you need to define your own custom input layer.
-	!*/
 public:
 
 	// sample_expansion_factor must be > 0

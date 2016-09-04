@@ -454,9 +454,9 @@ public:
 	):
 		batch_is_full_sequence(true),
 		out_sample_size(mem_k * mem_nr * mem_nc),
-		out_sample_aliaser(1, mem_k, mem_nr, mem_nc)
+		out_sample_aliaser(mini_batch, mem_k, mem_nr, mem_nc)
 	{
-		remember_input.set_size(1, mem_k, mem_nr, mem_nc);
+		remember_input.set_size(mini_batch, mem_k, mem_nr, mem_nc);
 		dbg_count = 0;
 		dbg_sum = 0;
 		dbg_max = 0;
@@ -483,7 +483,7 @@ public:
 		reset_sequence();
 
 		in_sample_size = in.k() * in.nr() * in.nc();
-		in_sample_aliaser = alias_tensor(1, in.k(), in.nr(), in.nc());
+		in_sample_aliaser = alias_tensor(mini_batch, in.k(), in.nr(), in.nc());
 
 		forward_nets.clear();
 
@@ -501,13 +501,16 @@ public:
 		auto &in = sub.get_output();
 		size_t num_samples = in.num_samples();
 
+		assert(num_samples % mini_batch == 0);
+		size_t seq_size = num_samples / mini_batch;
+
 		data_output.set_size(num_samples,
 			remember_input.k(),
 			remember_input.nr(),
 			remember_input.nc());
 
 		forward_nets.resize(1);
-		forward_nets.reserve(num_samples);
+		forward_nets.reserve(seq_size);
 
 		if(may_have_new_params && trained_params.size()) {
 			// Current RNN layer already had its parameters updated by learning.
@@ -521,7 +524,7 @@ public:
 		size_t s = 0;
 		for(;;) {
 			// Get the input tensor
-			auto sample_input = in_sample_aliaser(in, s * in_sample_size);
+			auto sample_input = in_sample_aliaser(in, s * mini_batch * in_sample_size);
 
 			// Copy the remembered data to the inner network's
 			// special memory layer. Every network buit upon
@@ -534,12 +537,12 @@ public:
 
 			// Copy the single output to the assembled outputs
 			{
-				auto dest = out_sample_aliaser(data_output, s * out_sample_size);
+				auto dest = out_sample_aliaser(data_output, s * mini_batch * out_sample_size);
 				memcpy(dest, sout);
 			}
 
 			// Test end of loop
-			if(++s >= num_samples) {
+			if(++s >= seq_size) {
 				// Copy the single output to internal memory, to be used in next evaluation.
 				memcpy(remember_input, sout);
 
@@ -560,7 +563,7 @@ public:
 		auto &data_grad_out = sub.get_gradient_input();
 		auto &in = sub.get_output();
 
-		resizable_tensor remembered_grad(1, gradient_input.k(), gradient_input.nr(), gradient_input.nc());
+		resizable_tensor remembered_grad(mini_batch, gradient_input.k(), gradient_input.nr(), gradient_input.nc());
 		assert(out_sample_size == gradient_input.k() * gradient_input.nr() * gradient_input.nc());
 
 		{
@@ -569,17 +572,17 @@ public:
 		}
 
 		// Get the loop counter, backwards because this is a BACKpropagation.
-		size_t s = gradient_input.num_samples() - 1;
+		size_t s = (gradient_input.num_samples() / mini_batch) - 1;
 
 		// Get the gradient slice used in the first iteration
-		auto in_grad_slice = out_sample_aliaser(gradient_input, s * out_sample_size);
+		auto in_grad_slice = out_sample_aliaser(gradient_input, s * mini_batch * out_sample_size);
 		const tensor *grad_input = &in_grad_slice.get();
 		for(;;) {
 			// Retrieve the interation's network
 			auto &fnet = forward_nets[s];
 
 			// Get the input tensor, the same use in forward operation
-			auto sample_input = in_sample_aliaser(in, s * in_sample_size);
+			auto sample_input = in_sample_aliaser(in, s * mini_batch * in_sample_size);
 
 			// Do the backpropagation in the inner network and get the output.
 			fnet.back_propagate_error(sample_input, *grad_input);
@@ -587,7 +590,7 @@ public:
 
 			// Assign iteration data grad output in the full data output.
 			{
-				auto dest = in_sample_aliaser(data_grad_out, s * in_sample_size);
+				auto dest = in_sample_aliaser(data_grad_out, s * mini_batch * in_sample_size);
 				memcpy(dest, inner_data_grad);
 			}
 
@@ -604,7 +607,7 @@ public:
 			// with the corresponding slice of gradient input.
 
 			// Get the input slice
-			in_grad_slice = out_sample_aliaser(gradient_input, s * out_sample_size);
+			in_grad_slice = out_sample_aliaser(gradient_input, s * mini_batch * out_sample_size);
 
 			// Get the memory gradient
 			const tensor& mem_grad = get_memory_layer(fnet).get_data_gradient();
@@ -625,7 +628,7 @@ public:
 		// to the number of samples, for RNN accumulated gradients doesn't
 		// scale linearly with the number of samples, but instead it
 		// scales exponentially.
-		params_grad_out *= 2.0 / (1.0 + in.num_samples());
+		//params_grad_out *= 2.0 / (1.0 + in.num_samples());
 
 		{
 			size_t size = params_grad_out.size();
@@ -833,6 +836,8 @@ private:
 	size_t dbg_count;
 	long double dbg_sum;
 	float dbg_max;
+
+	static const unsigned mini_batch = 50;
 };
 
 template <unsigned long num_outputs, typename INTERNALS, typename SUBNET>

@@ -41,30 +41,32 @@ void train(std::vector<char>& input, std::vector<unsigned long>& labels)
 	for(unsigned i = 0; i < slices.size(); ++i) {
 		slices[i] = i * 50;
 	}
-	{
-		std::mt19937 gen(std::random_device{}());
-		std::shuffle(slices.begin(), slices.end(), gen);
+	if(slices.back() + 50 > input.size()) {
+		slices.pop_back();
 	}
 
-	std::vector<char> b_input;
-	std::vector<unsigned long> b_labels;
+	std::mt19937 gen(std::random_device{}());
+	std::shuffle(slices.begin(), slices.end(), gen);
+
+	std::vector<char> b_input(50*50);
+	std::vector<unsigned long> b_labels(50*50);
+	unsigned j = 0;
 	for(unsigned k = 0; k < 10; ++k) { // Reductions
-		for(unsigned j = 0; j < 5; ++j) { // Epochs per reduction
-			for(unsigned i: slices) { // Full epoch
-				unsigned e = i + 50;
-				if(e > input.size() - 1) {
-					e = input.size() - 1;
+		while(j < 5 * slices.size()) { // Epochs per reduction
+			for(unsigned b = 0; b < 50; ++b) {
+				unsigned ss = slices[j++ % slices.size()];
+				for(unsigned i = 0; i < 50; ++i) {
+					unsigned d = i * 50 + b;
+					unsigned s = ss + i;
+					b_input[d] = input[s];
+					b_labels[d] = labels[s];
 				}
-
-				b_input.resize(e - i);
-				std::copy(input.begin() + i, input.begin() + e, b_input.begin());
-
-				b_labels.resize(e - i);
-				std::copy(labels.begin() + i, labels.begin() + e, b_labels.begin());
-
-				trainer.train_one_step(b_input, b_labels);
 			}
+
+			trainer.train_one_step(b_input, b_labels);
+			std::shuffle(slices.begin(), slices.end(), gen);
 		}
+		j = j % input.size();
 		trainer.set_learning_rate(0.5 * trainer.get_learning_rate());
 	}
 	trainer.get_net();
