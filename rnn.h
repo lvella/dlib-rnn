@@ -20,8 +20,8 @@ public:
 	template <typename SUBNET>
 	void forward(const SUBNET& sub, resizable_tensor& output)
 	{
-		auto&& t1 = sub.get_output();
-		auto&& t2 = layer<tag>(sub).get_output();
+		auto& t1 = sub.get_output();
+		auto& t2 = layer<tag>(sub).get_output();
 		output.set_size(t1.num_samples(), t1.k(), t1.nr(), t1.nc());
 
 		tt::multiply(false, output, t1, t2);
@@ -1050,9 +1050,9 @@ using inner_lstm_ =
 	tag2<fc_no_bias<num_outputs, skip_rnn_input<
 	tag3<mul_prev<tag10, sig<add_prev4<fc_high_bias<num_outputs, skip9<
 	tag4<fc_no_bias<num_outputs, skip_rnn_input<
-	tag5<htan<mul_prev<tag6, fc<num_outputs, skip9<
+	tag5<htan<add_prev6<fc<num_outputs, skip9<
 	tag6<fc_no_bias<num_outputs, skip_rnn_input<
-	tag7<htan<mul_prev<tag8, fc<num_outputs, skip9<
+	tag7<htan<add_prev8<fc<num_outputs, skip9<
 	tag8<fc_no_bias<num_outputs, skip_rnn_input<
 	tag9<split_right<skip_rnn_memory<
 	tag10<split_left<
