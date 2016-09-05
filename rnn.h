@@ -282,7 +282,8 @@ public:
 	{
 		auto &in = sub.get_output();
 		assert(in.k() % 2 == 0);
-		out_sample_size = in.k() / 2;
+		out_k = in.k() / 2;
+		sample_size = out_k * in.nr() * in.nc();
 	}
 
 	template <typename SUBNET>
@@ -290,17 +291,9 @@ public:
 	{
 		auto &in = sub.get_output();
 
-		size_t num_samples = in.num_samples();
-		data_output.set_size(num_samples, out_sample_size, in.nr(), in.nc());
+		data_output.set_size(in.num_samples(), out_k, in.nr(), in.nc());
 
-		const float *in_data = in.host();
-		float *out_data = data_output.host_write_only();
-
-		for(size_t s = 0; s < num_samples; ++s) {
-			const float *in = &in_data[(s * 2 + size_t(SIDE)) * out_sample_size];
-			float *out = &out_data[s * out_sample_size];
-			std::copy(in, in + out_sample_size, out);
-		}
+		tt::copy_tensor(data_output, 0, in, out_k * SIDE, out_k);
 	}
 
 	template <typename SUBNET>
@@ -311,15 +304,16 @@ public:
 	{
 		auto &grad_out = sub.get_gradient_input();
 
+		// TODO: find a way to do it using tensor tools...
 		const float *in_data = gradient_input.host();
 		float *out_data = grad_out.host();
 
 		size_t num_samples = gradient_input.num_samples();
 
 		for(size_t s = 0; s < num_samples; ++s) {
-			const float *in = &in_data[s * out_sample_size];
-			float *out = &out_data[(s * 2 + size_t(SIDE)) * out_sample_size];
-			for(size_t i = 0; i < out_sample_size; ++i) {
+			const float *in = &in_data[s * sample_size];
+			float *out = &out_data[(s * 2 + SIDE) * sample_size];
+			for(size_t i = 0; i < sample_size; ++i) {
 				out[i] += in[i];
 			}
 		}
@@ -339,7 +333,8 @@ public:
 	{
 		serialize("split_", out);
 		serialize(int(SIDE), out);
-		serialize(net.out_sample_size, out);
+		serialize(net.out_k, out);
+		serialize(net.sample_size, out);
 	}
 
 	friend void deserialize(split_& net, std::istream& in)
@@ -352,7 +347,8 @@ public:
 		deserialize(side, in);
 		if (SIDE != split_side(side))
 			throw serialization_error("Wrong side found while deserializing split_");
-		deserialize(net.out_sample_size, in);
+		deserialize(net.out_k, in);
+		deserialize(net.sample_size, in);
 	}
 
 	friend std::ostream& operator<<(std::ostream& out, const split_& item)
@@ -372,7 +368,9 @@ private:
 		return (SIDE == SPLIT_LEFT) ? "left" : "right";
 	}
 
-	size_t out_sample_size;
+	size_t out_k;
+	size_t sample_size;
+	alias_tensor splitter;
 
 	dlib::resizable_tensor params; // unused
 };
@@ -454,9 +452,11 @@ public:
 	):
 		batch_is_full_sequence(true),
 		out_sample_size(mem_k * mem_nr * mem_nc),
+		mini_batch(50),
 		out_sample_aliaser(mini_batch, mem_k, mem_nr, mem_nc)
 	{
 		remember_input.set_size(mini_batch, mem_k, mem_nr, mem_nc);
+
 		dbg_count = 0;
 		dbg_sum = 0;
 		dbg_max = 0;
@@ -469,9 +469,35 @@ public:
 		remember_input = 0.0f;
 	}
 
+	void set_mini_batch_size(size_t mini_batch_size)
+	{
+		mini_batch = mini_batch_size;
+		in_sample_aliaser = alias_tensor(mini_batch,
+			in_sample_aliaser.k(),
+			in_sample_aliaser.nr(),
+			in_sample_aliaser.nc());
+
+		out_sample_aliaser = alias_tensor(mini_batch,
+			remember_input.k(),
+			remember_input.nr(),
+			remember_input.nc());
+
+		remember_input.set_size(mini_batch,
+			remember_input.k(),
+			remember_input.nr(),
+			remember_input.nc());
+	}
+
 	void set_batch_is_full_sequence(bool is_full_sequence)
 	{
 		batch_is_full_sequence = is_full_sequence;
+	}
+
+	void set_for_run()
+	{
+		set_batch_is_full_sequence(false);
+		set_mini_batch_size(1);
+		reset_sequence();
 	}
 
 	template <typename SUBNET>
@@ -646,7 +672,8 @@ public:
 				}
 				dbg_sum += v;
 				if(++dbg_count == 64000000) {
-					std::cout << "### mean: " << dbg_sum / dbg_count << ",       max: " << dbg_max << std::endl;
+					std::cout << "### mean: " << dbg_sum / dbg_count << " (" << (dbg_sum == 0.0 ? "zero" : "non-zero")
+						<< "),   max: " << dbg_max << " (" << (dbg_max == 0.0 ? "zero" : "nonzero") << ')' << std::endl;
 					dbg_sum = dbg_max = dbg_count = 0;
 				}
 			}
@@ -822,13 +849,15 @@ private:
 	 */
 	dlib::resizable_tensor remember_input;
 
-	alias_tensor in_sample_aliaser;
-	alias_tensor out_sample_aliaser;
-
 	size_t in_sample_size;
 	size_t out_sample_size;
 
+	size_t mini_batch;
+
 	size_t params_size;
+
+	alias_tensor in_sample_aliaser;
+	alias_tensor out_sample_aliaser;
 
 	bool may_have_new_params;
 	bool batch_is_full_sequence;
@@ -836,8 +865,6 @@ private:
 	size_t dbg_count;
 	long double dbg_sum;
 	float dbg_max;
-
-	static const unsigned mini_batch = 50;
 };
 
 template <unsigned long num_outputs, typename INTERNALS, typename SUBNET>
