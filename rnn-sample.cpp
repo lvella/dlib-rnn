@@ -8,7 +8,7 @@
 #include "input_one_hot.h"
 
 template <typename SUBNET>
-using rnn_type = lstm<128, SUBNET>;
+using rnn_type = lstm_mut1<128, SUBNET>;
 
 const unsigned ab_size = 64;
 
@@ -17,8 +17,9 @@ using net_type =
 	fc<ab_size,
 	rnn_type<
 	rnn_type<
+	fc<ab_size,
 	input_one_hot<char, ab_size>
->>>>;
+>>>>>;
 
 void train(std::vector<char>& input, std::vector<unsigned long>& labels)
 {
@@ -100,15 +101,15 @@ void run_test(int label_map[], char fmap[])
 	}
 
 	// Configure to not forget between evaluations
-	auto & rnn_layer = layer<split_right>(generator).subnet();
-	rnn_layer.layer_details().set_batch_is_full_sequence(false);
-	rnn_layer.subnet().subnet().layer_details().set_batch_is_full_sequence(false);
+	auto & rnn_layer = layer<rnn_type>(generator);
+	rnn_layer.layer_details().set_for_run();
+	rnn_layer.subnet().layer_details().set_for_run();
 
 	std::random_device rd;
 
 	// Start generation from newline character
 	int prev = label_map['\n'];
-	for(unsigned i = 0; i < 100; ++i) {
+	for(unsigned i = 0; i < 1000; ++i) {
 		double rnd =
 			std::generate_canonical<double, std::numeric_limits<double>::digits>(rd);
 
