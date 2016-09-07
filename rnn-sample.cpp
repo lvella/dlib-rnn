@@ -7,86 +7,90 @@
 #include "rnn.h"
 #include "input_one_hot.h"
 
-template <typename net_type>
-auto set_rnn_for_run(net_type& n, int)
-	->decltype(n.subnet(), void())
+template <typename V, typename N>
+auto visit_rnns(V visitor, N& net, int)
+	->decltype(net.subnet(), void())
 {
-	set_rnn_for_run(n.subnet());
+	visit_rnns(visitor, net.subnet());
 }
 
-template <typename net_type>
-void set_rnn_for_run(net_type& n, long)
+template <typename V, typename N>
+void visit_rnns(V visitor, N& net, long)
+{}
+
+template <typename V, typename N>
+void visit_rnns(V visitor, N& net)
 {
+	visit_rnns(visitor, net, 0);
 }
 
-template <typename net_type>
-void set_rnn_for_run(net_type& n)
+template <typename V, typename SUBNET, typename INNER,
+	size_t K, size_t NR, size_t NC>
+void visit_rnns(V visitor, add_layer<rnn_<INNER, K, NR, NC>, SUBNET>& net)
 {
-	set_rnn_for_run(n, 0);
+	visitor(net.layer_details());
+	visit_rnns(visitor, net.subnet());
 }
 
-template <typename SUBNET, typename INNER, size_t K, size_t NR, size_t NC>
-void set_rnn_for_run(add_layer<rnn_<INNER, K, NR, NC>, SUBNET>& n)
-{
-	n.layer_details().set_for_run();
-	set_rnn_for_run(n.subnet());
-}
+// TODO: handle repeat...
 
+const unsigned seq_size = 50;
+const unsigned mini_batch_size = 50;
 const unsigned ab_size = 64;
 
 using net_type =
 	loss_multiclass_log<
-	fc<ab_size, concat2<tag3, tag4,
-	tag4<lstm_mut1<384, concat2<tag2, tag3,
-	tag3<lstm_mut1<256, concat2<tag1, tag2,
-	tag2<lstm_mut1<128,
-	tag1<fc<ab_size,
+	fc<ab_size,
+	lstm_mut1<128,
+	lstm_mut1<128,
+	fc<128,
 	input_one_hot<char, ab_size>
->>>>>>>>>>>>>;
+>>>>>;
 
 void train(std::vector<char>& input, std::vector<unsigned long>& labels)
 {
 	net_type net;
 	dnn_trainer<net_type, adam> trainer(net, adam(0.0005, 0.9, 0.999));
 
+	//visit_rnns([](auto& n) { n.set_mini_batch_size(mini_batch_size); }, net);
+
 	//trainer.set_mini_batch_size(70);
 
 	trainer.set_learning_rate_shrink_factor(0.5);
-	trainer.set_learning_rate(0.01);
+	trainer.set_learning_rate(0.002);
 	//trainer.set_min_learning_rate(1e-9);
 	//trainer.set_learning_rate_shrink_factor(0.4);
-	//trainer.set_iterations_without_progress_threshold(220);
+	//trainer.set_iterations_without_progress_threshold(150);
 
 	trainer.be_verbose();
 
 	trainer.set_synchronization_file("shakespeare.sync", std::chrono::seconds(120));
 
-	std::vector<unsigned> slices(input.size() / 50);
+	std::vector<unsigned> slices(input.size() / seq_size);
 	for(unsigned i = 0; i < slices.size(); ++i) {
-		slices[i] = i * 50;
+		slices[i] = i * seq_size;
 	}
-	if(slices.back() + 50 > input.size()) {
+	if(slices.back() + seq_size > input.size()) {
 		slices.pop_back();
 	}
 
 	std::mt19937 gen(std::random_device{}());
 	std::shuffle(slices.begin(), slices.end(), gen);
 
-	std::vector<char> b_input(50*50);
-	std::vector<unsigned long> b_labels(50*50);
+	std::vector<char> b_input(seq_size * mini_batch_size);
+	std::vector<unsigned long> b_labels(b_input.size());
 	for(;;) { // Reductions
 		unsigned j = 0;
 		while(j < slices.size()) { // Full epoch
-			for(unsigned b = 0; b < 50; ++b) {
+			for(unsigned b = 0; b < mini_batch_size; ++b) {
 				unsigned ss = slices[j++ % slices.size()];
-				for(unsigned i = 0; i < 50; ++i) {
-					unsigned d = i * 50 + b;
+				for(unsigned i = 0; i < seq_size; ++i) {
+					unsigned d = i * mini_batch_size + b;
 					unsigned s = ss + i;
 					b_input[d] = input[s];
 					b_labels[d] = labels[s];
 				}
 			}
-
 			trainer.train_one_step(b_input, b_labels);
 		}
 		// Shuffle per epoch.
@@ -123,7 +127,7 @@ void run_test(int label_map[], char fmap[])
 	}
 
 	// Configure to not forget between evaluations
-	set_rnn_for_run(generator);
+	visit_rnns([](auto& n) { n.set_for_run(); }, generator);
 
 	std::random_device rd;
 
