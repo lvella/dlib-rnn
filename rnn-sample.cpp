@@ -7,19 +7,42 @@
 #include "rnn.h"
 #include "input_one_hot.h"
 
-template <typename SUBNET>
-using rnn_type = lstm<128, SUBNET>;
+template <typename net_type>
+auto set_rnn_for_run(net_type& n, int)
+	->decltype(n.subnet(), void())
+{
+	set_rnn_for_run(n.subnet());
+}
+
+template <typename net_type>
+void set_rnn_for_run(net_type& n, long)
+{
+}
+
+template <typename net_type>
+void set_rnn_for_run(net_type& n)
+{
+	set_rnn_for_run(n, 0);
+}
+
+template <typename SUBNET, typename INNER, size_t K, size_t NR, size_t NC>
+void set_rnn_for_run(add_layer<rnn_<INNER, K, NR, NC>, SUBNET>& n)
+{
+	n.layer_details().set_for_run();
+	set_rnn_for_run(n.subnet());
+}
 
 const unsigned ab_size = 64;
 
 using net_type =
 	loss_multiclass_log<
-	fc<ab_size,
-	rnn_type<
-	rnn_type<
-//	fc<ab_size,
+	fc<ab_size, concat2<tag3, tag4,
+	tag4<lstm_mut1<384, concat2<tag2, tag3,
+	tag3<lstm_mut1<256, concat2<tag1, tag2,
+	tag2<lstm_mut1<128,
+	tag1<fc<ab_size,
 	input_one_hot<char, ab_size>
->>>>;
+>>>>>>>>>>>>>;
 
 void train(std::vector<char>& input, std::vector<unsigned long>& labels)
 {
@@ -28,11 +51,11 @@ void train(std::vector<char>& input, std::vector<unsigned long>& labels)
 
 	//trainer.set_mini_batch_size(70);
 
-	trainer.set_learning_rate_shrink_factor(1.0);
-	trainer.set_learning_rate(0.002);
+	trainer.set_learning_rate_shrink_factor(0.5);
+	trainer.set_learning_rate(0.01);
 	//trainer.set_min_learning_rate(1e-9);
 	//trainer.set_learning_rate_shrink_factor(0.4);
-	//trainer.set_iterations_without_progress_threshold(180);
+	//trainer.set_iterations_without_progress_threshold(220);
 
 	trainer.be_verbose();
 
@@ -51,9 +74,9 @@ void train(std::vector<char>& input, std::vector<unsigned long>& labels)
 
 	std::vector<char> b_input(50*50);
 	std::vector<unsigned long> b_labels(50*50);
-	unsigned j = 0;
-	for(unsigned k = 0; k < 10; ++k) { // Reductions
-		while(j < 5 * slices.size()) { // Epochs per reduction
+	for(;;) { // Reductions
+		unsigned j = 0;
+		while(j < slices.size()) { // Full epoch
 			for(unsigned b = 0; b < 50; ++b) {
 				unsigned ss = slices[j++ % slices.size()];
 				for(unsigned i = 0; i < 50; ++i) {
@@ -65,10 +88,9 @@ void train(std::vector<char>& input, std::vector<unsigned long>& labels)
 			}
 
 			trainer.train_one_step(b_input, b_labels);
-			std::shuffle(slices.begin(), slices.end(), gen);
 		}
-		j = j % slices.size();
-		trainer.set_learning_rate(0.5 * trainer.get_learning_rate());
+		// Shuffle per epoch.
+		std::shuffle(slices.begin(), slices.end(), gen);
 	}
 	trainer.get_net();
 	net.clean();
@@ -101,9 +123,7 @@ void run_test(int label_map[], char fmap[])
 	}
 
 	// Configure to not forget between evaluations
-	auto & rnn_layer = layer<split_right>(generator).subnet();
-	rnn_layer.layer_details().set_for_run();
-	rnn_layer.subnet().subnet().layer_details().set_for_run();
+	set_rnn_for_run(generator);
 
 	std::random_device rd;
 
