@@ -34,16 +34,16 @@ void visit_rnns(V visitor, add_layer<rnn_<INNER, K, NR, NC>, SUBNET>& net)
 
 // TODO: handle repeat...
 
-const unsigned seq_size = 50;
-const unsigned mini_batch_size = 50;
+const unsigned seq_size = 256;
+const unsigned mini_batch_size = 100;
 const unsigned ab_size = 64;
 
 using net_type =
 	loss_multiclass_log<
 	fc<ab_size,
-	lstm_mut1<128,
-	lstm_mut1<128,
-	fc<128,
+	lstm_mut1<256,
+	lstm_mut1<256,
+	fc<256,
 	input_one_hot<char, ab_size>
 >>>>>;
 
@@ -52,15 +52,15 @@ void train(std::vector<char>& input, std::vector<unsigned long>& labels)
 	net_type net;
 	dnn_trainer<net_type, adam> trainer(net, adam(0.0005, 0.9, 0.999));
 
-	//visit_rnns([](auto& n) { n.set_mini_batch_size(mini_batch_size); }, net);
+	visit_rnns([](auto& n) { n.set_mini_batch_size(mini_batch_size); }, net);
 
 	//trainer.set_mini_batch_size(70);
 
 	trainer.set_learning_rate_shrink_factor(0.5);
-	trainer.set_learning_rate(0.002);
+	trainer.set_learning_rate(0.01);
 	//trainer.set_min_learning_rate(1e-9);
 	//trainer.set_learning_rate_shrink_factor(0.4);
-	//trainer.set_iterations_without_progress_threshold(150);
+	trainer.set_iterations_without_progress_threshold(200);
 
 	trainer.be_verbose();
 
