@@ -1,3 +1,6 @@
+#ifndef INPUT_ONE_HOT_H
+#define INPUT_ONE_HOT_H
+
 #include <dlib/dnn.h>
 
 template <typename T, size_t NUM_CLASSES>
@@ -40,3 +43,5 @@ public:
 	{/* TODO */}
 
 };
+
+#endif

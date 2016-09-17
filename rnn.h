@@ -1,3 +1,6 @@
+#ifndef RNN_H
+#define RNN_H
+
 #include <vector>
 #include <dlib/dnn/tensor.h>
 #include <dlib/dnn.h>
@@ -1198,3 +1201,5 @@ private:
 
 	Iter first;
 };
+
+#endif
