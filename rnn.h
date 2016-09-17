@@ -1061,3 +1061,140 @@ using inner_lstm_ =
 
 template <unsigned long num_outputs, typename SUBNET>
 using lstm = split_right<rnn<2 * num_outputs, inner_lstm_<num_outputs>, SUBNET>>;
+
+// To be used in building the input, because rnn_ expect
+// the mini_batches grouped by sequence position.
+template <typename Iter>
+class transpose_iterator
+{
+public:
+	static_assert(
+		std::is_base_of<
+			std::random_access_iterator_tag,
+			typename std::iterator_traits<Iter>::iterator_category
+		>::value,
+		"tranpose_iterator can only be used on a RandomAccessIterator"
+	);
+
+	typedef ptrdiff_t difference_type;
+	typedef typename std::iterator_traits<Iter>::value_type value_type;
+	typedef typename std::iterator_traits<Iter>::reference reference;
+	typedef typename std::iterator_traits<Iter>::reference pointer;
+	typedef std::random_access_iterator_tag iterator_category;
+
+	transpose_iterator(Iter first, Iter last, size_t row_size):
+		counter(0),
+		ncols(row_size),
+		first(first)
+	{
+		size_t total_size = std::distance(first, last);
+		assert(total_size % row_size == 0);
+
+		nrows = total_size / row_size;
+	}
+
+	transpose_iterator& operator++()
+	{
+		++counter;
+		return *this;
+	}
+
+	transpose_iterator operator++(int)
+	{
+		transpose_iterator copy(*this);
+		++counter;
+		return copy;
+	}
+
+	transpose_iterator& operator--()
+	{
+		--counter;
+		return *this;
+	}
+
+	transpose_iterator operator--(int)
+	{
+		transpose_iterator copy(*this);
+		--counter;
+		return copy;
+	}
+
+	friend bool operator<(const transpose_iterator& a, const transpose_iterator& b)
+	{
+		return a.counter < b.counter;
+	}
+
+	friend bool operator>(const transpose_iterator& a, const transpose_iterator& b)
+	{
+		return a.counter > b.counter;
+	}
+
+	friend bool operator<=(const transpose_iterator& a, const transpose_iterator& b)
+	{
+		return a.counter <= b.counter;
+	}
+
+	friend bool operator>=(const transpose_iterator& a, const transpose_iterator& b)
+	{
+		return a.counter >= b.counter;
+	}
+
+	transpose_iterator& operator+=(size_t s)
+	{
+		counter += s;
+		return *this;
+	}
+
+	friend transpose_iterator operator+(const transpose_iterator& i, size_t s)
+	{
+		transpose_iterator copy(i);
+		copy.counter += s;
+		return copy;
+	}
+
+	friend transpose_iterator operator+(size_t s, const transpose_iterator& i)
+	{
+		return i + s;
+	}
+
+	transpose_iterator& operator-=(size_t s)
+	{
+		counter -= s;
+		return *this;
+	}
+
+	friend transpose_iterator operator-(const transpose_iterator& i, size_t s)
+	{
+		transpose_iterator copy(i);
+		copy.counter -= s;
+		return copy;
+	}
+
+	friend ptrdiff_t operator-(const transpose_iterator& a, const transpose_iterator& b)
+	{
+		return ptrdiff_t(a.counter) - ptrdiff_t(b.counter);
+	}
+
+	reference operator[](size_t s) const
+	{
+		size_t input_row = (counter + s) % nrows;
+		size_t input_col = (counter + s) / nrows;
+		return first[(input_row * ncols) + input_col];
+	}
+
+	reference operator*() const
+	{
+		return (*this)[0];
+	}
+
+	pointer operator->() const
+	{
+		return &**this;
+	}
+
+private:
+	size_t counter;
+	size_t nrows, ncols;
+
+	Iter first;
+};

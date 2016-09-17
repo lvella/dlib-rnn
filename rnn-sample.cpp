@@ -54,8 +54,6 @@ void train(std::vector<char>& input, std::vector<unsigned long>& labels)
 
 	visit_rnns([](auto& n) { n.set_mini_batch_size(mini_batch_size); }, net);
 
-	//trainer.set_mini_batch_size(70);
-
 	trainer.set_learning_rate_shrink_factor(0.5);
 	trainer.set_learning_rate(0.01);
 	//trainer.set_min_learning_rate(1e-9);
@@ -67,29 +65,39 @@ void train(std::vector<char>& input, std::vector<unsigned long>& labels)
 	trainer.set_synchronization_file("shakespeare.sync", std::chrono::seconds(120));
 
 	std::vector<unsigned> slices(input.size() / seq_size);
+	assert(slices.size() >= mini_batch_size);
 	for(unsigned i = 0; i < slices.size(); ++i) {
 		slices[i] = i * seq_size;
-	}
-	if(slices.back() + seq_size > input.size()) {
-		slices.pop_back();
 	}
 
 	std::mt19937 gen(std::random_device{}());
 	std::shuffle(slices.begin(), slices.end(), gen);
 
-	std::vector<char> b_input(seq_size * mini_batch_size);
-	std::vector<unsigned long> b_labels(b_input.size());
+	std::vector<char> b_input;
+	std::vector<unsigned long> b_labels;
 	for(;;) { // Reductions
 		unsigned j = 0;
 		while(j < slices.size()) { // Full epoch
+			// Calculate the biggest sequence size we can use
+			unsigned min_seq = seq_size;
+			for(unsigned b = 0; b < mini_batch_size; ++b) {
+				unsigned ss = slices[(j + b) % slices.size()];
+				unsigned size = input.size() - ss;
+				if(min_seq > size) {
+					min_seq = size;
+					std::cout << "DEBUG: sequence size = " << min_seq << std::endl;
+					break;
+				}
+			}
+			b_input.resize(min_seq * mini_batch_size);
+			b_labels.resize(b_input.size());
+
+			transpose_iterator<decltype(b_input.begin())> input_iter(b_input.begin(), b_input.end(), mini_batch_size);
+			transpose_iterator<decltype(b_labels.begin())> label_iter(b_labels.begin(), b_labels.end(), mini_batch_size);
 			for(unsigned b = 0; b < mini_batch_size; ++b) {
 				unsigned ss = slices[j++ % slices.size()];
-				for(unsigned i = 0; i < seq_size; ++i) {
-					unsigned d = i * mini_batch_size + b;
-					unsigned s = ss + i;
-					b_input[d] = input[s];
-					b_labels[d] = labels[s];
-				}
+				std::copy(&input[ss], &input[ss] + min_seq, input_iter + b * min_seq);
+				std::copy(&labels[ss], &labels[ss] + min_seq, label_iter + b * min_seq);
 			}
 			trainer.train_one_step(b_input, b_labels);
 		}
@@ -126,7 +134,7 @@ void run_test(int label_map[], char fmap[])
 		generator.subnet() = net.subnet();
 	}
 
-	// Configure to not forget between evaluations
+	// Configure to evaluate, not to train
 	visit_rnns([](auto& n) { n.set_for_run(); }, generator);
 
 	std::random_device rd;
