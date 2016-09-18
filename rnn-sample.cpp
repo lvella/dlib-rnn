@@ -34,16 +34,16 @@ void visit_rnns(V visitor, add_layer<rnn_<INNER, K, NR, NC>, SUBNET>& net)
 
 // TODO: handle repeat...
 
-const unsigned seq_size = 256;
-const unsigned mini_batch_size = 100;
+const unsigned seq_size = 32;
+const unsigned mini_batch_size = 1000;
 const unsigned ab_size = 64;
 
 using net_type =
 	loss_multiclass_log<
 	fc<ab_size,
-	lstm_mut1<256,
-	lstm_mut1<256,
-	fc<256,
+	lstm_mut1<16,
+	lstm_mut1<16,
+	fc<16,
 	input_one_hot<char, ab_size>
 >>>>>;
 
@@ -69,6 +69,9 @@ void train(std::vector<char>& input, std::vector<unsigned long>& labels)
 	for(unsigned i = 0; i < slices.size(); ++i) {
 		slices[i] = i * seq_size;
 	}
+	if(input.size() % seq_size) {
+		slices.push_back(slices.size() * seq_size);
+	}
 
 	std::mt19937 gen(std::random_device{}());
 	std::shuffle(slices.begin(), slices.end(), gen);
@@ -83,9 +86,8 @@ void train(std::vector<char>& input, std::vector<unsigned long>& labels)
 			for(unsigned b = 0; b < mini_batch_size; ++b) {
 				unsigned ss = slices[(j + b) % slices.size()];
 				unsigned size = input.size() - ss;
-				if(min_seq > size) {
+				if(size < min_seq) {
 					min_seq = size;
-					std::cout << "DEBUG: sequence size = " << min_seq << std::endl;
 					break;
 				}
 			}
