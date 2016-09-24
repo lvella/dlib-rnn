@@ -7,34 +7,7 @@
 #include "rnn.h"
 #include "input_one_hot.h"
 
-template <typename V, typename N>
-auto visit_rnns(V visitor, N& net, int)
-	->decltype(net.subnet(), void())
-{
-	visit_rnns(visitor, net.subnet());
-}
-
-template <typename V, typename N>
-void visit_rnns(V visitor, N& net, long)
-{}
-
-template <typename V, typename N>
-void visit_rnns(V visitor, N& net)
-{
-	visit_rnns(visitor, net, 0);
-}
-
-template <typename V, typename SUBNET, typename INNER,
-	size_t K, size_t NR, size_t NC>
-void visit_rnns(V visitor, add_layer<rnn_<INNER, K, NR, NC>, SUBNET>& net)
-{
-	visitor(net.layer_details());
-	visit_rnns(visitor, net.subnet());
-}
-
-// TODO: handle repeat...
-
-const unsigned seq_size = 32;
+const unsigned seq_size = 100;
 const unsigned mini_batch_size = 1000;
 const unsigned ab_size = 64;
 
@@ -42,10 +15,13 @@ using net_type =
 	loss_multiclass_log<
 	fc<ab_size,
 	lstm_mut1<16,
+	relu<fc<16,
+	relu<fc<256,
+	relu<fc<256,
 	lstm_mut1<16,
 	fc<16,
 	input_one_hot<char, ab_size>
->>>>>;
+>>>>>>>>>>>;
 
 void train(std::vector<char>& input, std::vector<unsigned long>& labels)
 {

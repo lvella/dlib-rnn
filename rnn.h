@@ -1202,4 +1202,31 @@ private:
 	Iter first;
 };
 
+template <typename V, typename N>
+auto visit_rnns(V visitor, N& net, int)
+	->decltype(net.subnet(), void())
+{
+	visit_rnns(visitor, net.subnet());
+}
+
+template <typename V, typename N>
+void visit_rnns(V visitor, N& net, long)
+{}
+
+template <typename V, typename N>
+void visit_rnns(V visitor, N& net)
+{
+	visit_rnns(visitor, net, 0);
+}
+
+template <typename V, typename SUBNET, typename INNER,
+	size_t K, size_t NR, size_t NC>
+void visit_rnns(V visitor, add_layer<rnn_<INNER, K, NR, NC>, SUBNET>& net)
+{
+	visitor(net.layer_details());
+	visit_rnns(visitor, net.subnet());
+}
+
+// TODO: handle repeat...
+
 #endif
