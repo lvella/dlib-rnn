@@ -453,7 +453,7 @@ public:
 		size_t mem_nr = memory_nr_,
 		size_t mem_nc = memory_nc_
 	):
-		batch_is_full_sequence(true),
+		in_training(true),
 		out_sample_size(mem_k * mem_nr * mem_nc),
 		mini_batch(50),
 		out_sample_aliaser(mini_batch, mem_k, mem_nr, mem_nc)
@@ -491,14 +491,14 @@ public:
 			remember_input.nc());
 	}
 
-	void set_batch_is_full_sequence(bool is_full_sequence)
+	void set_in_training(bool in_training)
 	{
-		batch_is_full_sequence = is_full_sequence;
+		this->in_training = in_training;
 	}
 
 	void set_for_run()
 	{
-		set_batch_is_full_sequence(false);
+		set_in_training(false);
 		set_mini_batch_size(1);
 		reset_sequence();
 	}
@@ -523,8 +523,13 @@ public:
 	template <typename SUBNET>
 	void forward(const SUBNET& sub, resizable_tensor& data_output)
 	{
-		if(batch_is_full_sequence) {
-			reset_sequence();
+		if(in_training) {
+			if(forward_nets.size() <= 1) {
+				reset_sequence();
+				forward_nets.resize(1);
+			}
+		} else {
+			forward_nets.resize(1);
 		}
 
 		auto &in = sub.get_output();
@@ -533,13 +538,12 @@ public:
 		assert(num_samples % mini_batch == 0);
 		size_t seq_size = num_samples / mini_batch;
 
+		forward_nets.reserve(forward_nets.size() + seq_size + 1);
+
 		data_output.set_size(num_samples,
 			remember_input.k(),
 			remember_input.nr(),
 			remember_input.nc());
-
-		forward_nets.resize(1);
-		forward_nets.reserve(seq_size);
 
 		if(may_have_new_params && trained_params.size()) {
 			// Current RNN layer already had its parameters updated by learning.
@@ -562,13 +566,16 @@ public:
 			mem_layer.set_constant(*remembered);
 
 			// Pass the input tensor through the internal subnetwork
-			auto &sout = forward_nets[s].forward(sample_input);
+			auto &sout = forward_nets.back().forward(sample_input);
 
 			// Copy the single output to the assembled outputs
 			{
 				auto dest = out_sample_aliaser(data_output, s * mini_batch * out_sample_size);
 				memcpy(dest, sout);
 			}
+
+			// Creates the net to be used in the next iteration.
+			forward_nets.emplace_back(forward_nets.back());
 
 			// Test end of loop
 			if(++s >= seq_size) {
@@ -580,9 +587,6 @@ public:
 
 			// Use the output of this iteration as memory input of the next
 			remembered = &sout;
-
-			// Creates the net to be used in the next iteration.
-			forward_nets.emplace_back(forward_nets[s-1]);
 		}
 	}
 
@@ -607,8 +611,14 @@ public:
 		auto in_grad_slice = out_sample_aliaser(gradient_input, s * mini_batch * out_sample_size);
 		const tensor *grad_input = &in_grad_slice.get();
 		for(;;) {
+			// Remove the last unrolled inner net.
+			// It is either unused, or already processed in
+			// previous iteration.
+			assert(forward_nets.size() > 1);
+			forward_nets.pop_back();
+
 			// Retrieve the interation's network
-			auto &fnet = forward_nets[s];
+			auto &fnet = forward_nets.back();
 
 			// Get the input tensor, the same use in forward operation
 			auto sample_input = in_sample_aliaser(in, s * mini_batch * in_sample_size);
@@ -646,18 +656,7 @@ public:
 
 			// Set the sum as grad input for next iteration
 			grad_input = &remembered_grad;
-
-			// Remove the just used unfolded inner network, as
-			// it is no longer necessary.
-			forward_nets.pop_back();
 		}
-
-		// Hack that will work only when all layers in the network are RNN.
-		// This step will normalize the gradient to a value proportional
-		// to the number of samples, for RNN accumulated gradients doesn't
-		// scale linearly with the number of samples, but instead it
-		// scales exponentially.
-		//params_grad_out *= 2.0 / (1.0 + in.num_samples());
 
 		{
 			size_t size = params_grad_out.size();
@@ -717,7 +716,8 @@ public:
 		serialize(net.out_sample_size, out);
 		serialize(net.params_size, out);
 		serialize(net.may_have_new_params, out);
-		serialize(net.batch_is_full_sequence, out);
+		serialize(net.mini_batch, out);
+		serialize(net.in_training, out);
 	}
 
 	friend void deserialize(rnn_& net, std::istream& in)
@@ -735,7 +735,8 @@ public:
 		deserialize(net.out_sample_size, in);
 		deserialize(net.params_size, in);
 		deserialize(net.may_have_new_params, in);
-		deserialize(net.batch_is_full_sequence, in);
+		deserialize(net.mini_batch, in);
+		deserialize(net.in_training, in);
 	}
 
 	friend std::ostream& operator<<(std::ostream& out, const rnn_& net)
@@ -863,7 +864,7 @@ private:
 	alias_tensor out_sample_aliaser;
 
 	bool may_have_new_params;
-	bool batch_is_full_sequence;
+	bool in_training;
 
 	size_t dbg_count;
 	long double dbg_sum;
