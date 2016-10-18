@@ -491,9 +491,18 @@ public:
 
 	rnn_(const rnn_&) = default;
 
+	template<typename F>
+	void set_reseter(const F& func)
+	{
+		reserter = func;
+	}
+
 	void reset_sequence()
 	{
-		remember_input = 0.0f;
+		if(reserter)
+			remember_input = 0.0f;
+		else
+			reserter(remember_input);
 	}
 
 	void set_mini_batch_size(size_t mini_batch_size)
@@ -875,6 +884,8 @@ private:
 	 * The data remembered from previous runs.
 	 */
 	dlib::resizable_tensor remember_input;
+
+	std::function<void(tensor&)> reserter;
 
 	size_t in_sample_size;
 	size_t out_sample_size;
