@@ -1081,7 +1081,7 @@ template <typename SUBNET> using tag11 = add_tag_layer<11, SUBNET>;
 // t10 = (c, h)[0]
 //
 template <unsigned long num_outputs>
-using inner_lstm_ =
+using inner_lstm1_ =
 	concat2<tag1, tag11,
 	tag11<mul_prev<tag7, htan<skip1<
 	tag1<add_prev3<mul_prev<tag5, sig<add_prev2<fc<num_outputs, skip9<
@@ -1098,7 +1098,54 @@ using inner_lstm_ =
 	>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>;
 
 template <unsigned long num_outputs, typename SUBNET>
-using lstm = split_right<rnn<2 * num_outputs, inner_lstm_<num_outputs>, SUBNET>>;
+using lstm1 = split_right<rnn<2 * num_outputs, inner_lstm1_<num_outputs>, SUBNET>>;
+
+// Basic Long Short-Term Memory (LSTM), as given in the blog post:
+// https://colah.github.io/posts/2015-08-Understanding-LSTMs/
+//
+// It is defined as:
+// i = tanh(Wxi x + Whi h + Bi)
+// j = sigm(Wxj x + Whj h + Bj)
+// f = sigm(Wxf x + Whf h + Bf)
+// o = sigm(Wxo x + Who h + Bo)
+// c ← c * f + i * j
+// h ← tanh(c) * o
+//
+// which translates to:
+//
+// o   = t1, t11
+// t11 = t7 * tanh(t1)
+// t1  = t3 + t5 * sigm(t2 + Whj t9 + Bj)
+// t2  = Wxj x
+// t3  = t10 * sigm(t4 + Whf t9 + Bf)
+// t4  = Wxf x
+// t5  = tanh(t6 + Whi t9 + Bi)
+// t6  = Wxi x
+// t7  = sigm(t8 + Who t9 + Bo)
+// t8  = Wxo x
+// t9  = (c, h)[1]
+// t10 = (c, h)[0]
+
+template <unsigned long num_outputs>
+using inner_lstm2_ =
+	concat2<tag1, tag11,
+	tag11<mul_prev<tag7, htan<skip1<
+	tag1<add_prev3<mul_prev<tag5, sig<add_prev2<fc<num_outputs, skip9<
+	tag2<fc_no_bias<num_outputs, skip_rnn_input<
+	tag3<mul_prev<tag10, sig<add_prev4<fc_high_bias<num_outputs, skip9<
+	tag4<fc_no_bias<num_outputs, skip_rnn_input<
+	tag5<htan<add_prev6<fc<num_outputs, skip9<
+	tag6<fc_no_bias<num_outputs, skip_rnn_input<
+	tag7<sig<add_prev8<fc<num_outputs, skip9<
+	tag8<fc_no_bias<num_outputs, skip_rnn_input<
+	tag9<split_right<skip_rnn_memory<
+	tag10<split_left<
+	rnn_subnet_base
+	>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>;
+
+template <unsigned long num_outputs, typename SUBNET>
+using lstm2 = split_right<rnn<2 * num_outputs, inner_lstm2_<num_outputs>, SUBNET>>;
+
 
 // To be used in building the input, because rnn_ expect
 // the mini_batches grouped by sequence position.
