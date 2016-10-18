@@ -888,7 +888,7 @@ using rnn = add_layer<rnn_<INTERNALS, num_outputs>, SUBNET>;
 //
 // MUT1:
 // z = sigm(Wxz x + Bz)
-// r = sigm(Wxt x + Whr h + Br)
+// r = sigm(Wxr x + Whr h + Br)
 // h ← tanh(Whh (r * h) + tanh(x) + Bh) * z
 //   + h * (1 - z)
 //
