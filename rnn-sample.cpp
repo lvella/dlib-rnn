@@ -8,20 +8,17 @@
 #include "input_one_hot.h"
 
 const unsigned seq_size = 100;
-const unsigned mini_batch_size = 1000;
+const unsigned mini_batch_size = 500;
 const unsigned ab_size = 64;
 
 using net_type =
 	loss_multiclass_log<
 	fc<ab_size,
-	lstm_mut1<16,
-	relu<fc<16,
-	relu<fc<256,
-	relu<fc<256,
-	lstm_mut1<16,
-	fc<16,
+	lstm_mut1<64,
+	lstm_mut1<64,
+	fc<64,
 	input_one_hot<char, ab_size>
->>>>>>>>>>>;
+>>>>>;
 
 void train(std::vector<char>& input, std::vector<unsigned long>& labels)
 {

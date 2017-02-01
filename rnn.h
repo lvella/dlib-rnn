@@ -494,15 +494,16 @@ public:
 	template<typename F>
 	void set_reseter(const F& func)
 	{
-		reserter = func;
+		reseter = func;
 	}
 
 	void reset_sequence()
 	{
-		if(reserter)
+		if(reseter) {
+			reseter(remember_input);
+		} else {
 			remember_input = 0.0f;
-		else
-			reserter(remember_input);
+		}
 	}
 
 	void set_mini_batch_size(size_t mini_batch_size)
@@ -885,7 +886,7 @@ private:
 	 */
 	dlib::resizable_tensor remember_input;
 
-	std::function<void(tensor&)> reserter;
+	std::function<void(tensor&)> reseter;
 
 	size_t in_sample_size;
 	size_t out_sample_size;
