@@ -1,4 +1,4 @@
-FLAGS = -O3 -flto=8 -march=native -mtune=native
+FLAGS = -Ofast -flto=8 -march=native -mtune=native
 #FLAGS = -g
 
 rnn-sample: rnn-sample.o
