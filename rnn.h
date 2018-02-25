@@ -7,75 +7,6 @@
 
 using namespace dlib;
 
-template <
-	template<typename> class tag
-	>
-class mul_prev_
-{
-public:
-	const static unsigned long id = tag_id<tag>::id;
-
-	template <typename SUBNET>
-	void setup (const SUBNET& /*sub*/)
-	{
-	}
-
-	template <typename SUBNET>
-	void forward(const SUBNET& sub, resizable_tensor& output)
-	{
-		auto& t1 = sub.get_output();
-		auto& t2 = layer<tag>(sub).get_output();
-		output.set_size(t1.num_samples(), t1.k(), t1.nr(), t1.nc());
-
-		tt::multiply(false, output, t1, t2);
-	}
-
-	template <typename SUBNET>
-	void backward(const tensor& gradient_input, SUBNET& sub, tensor& /*params_grad*/)
-	{
-		// The gradient of one factor is the other factor
-		auto &prev_layer = layer<tag>(sub);
-		tt::multiply(true, sub.get_gradient_input(), prev_layer.get_output(), gradient_input);
-		tt::multiply(true, prev_layer.get_gradient_input(), sub.get_output(), gradient_input);
-	}
-
-	const tensor& get_layer_params() const { return params; }
-	tensor& get_layer_params() { return params; }
-
-	friend void serialize(const mul_prev_& , std::ostream& out)
-	{
-		serialize("mul_prev_", out);
-	}
-
-	friend void deserialize(mul_prev_& , std::istream& in)
-	{
-		std::string version;
-		deserialize(version, in);
-		if (version != "mul_prev_")
-			throw serialization_error("Unexpected version '"+version+"' found while deserializing mul_prev_.");
-	}
-
-	friend std::ostream& operator<<(std::ostream& out, const mul_prev_& item)
-	{
-		out << "mul_prev"<<id;
-		return out;
-	}
-
-	friend void to_xml(const mul_prev_& item, std::ostream& out)
-	{
-		out << "<mul_prev tag='"<<id<<"'/>\n";
-	}
-
-private:
-	resizable_tensor params;
-};
-
-template <
-	template<typename> class tag,
-	typename SUBNET
-	>
-using mul_prev = add_layer<mul_prev_<tag>, SUBNET>;
-
 /* affine layer could do the job, but I don't know how to
  * initialize it, and would waste memory holding M = -1 and
  * B = 1.
@@ -629,10 +560,8 @@ public:
 		resizable_tensor remembered_grad(mini_batch, gradient_input.k(), gradient_input.nr(), gradient_input.nc());
 		assert(out_sample_size == gradient_input.k() * gradient_input.nr() * gradient_input.nc());
 
-		{
-			// Zeroes the params grad output before accumulating.
-			params_grad_out = 0.0f;
-		}
+		// Zeroes the params grad output before accumulating.
+		params_grad_out = 0.0f;
 
 		// Get the loop counter, backwards because this is a BACKpropagation.
 		size_t s = (gradient_input.num_samples() / mini_batch) - 1;
@@ -641,10 +570,10 @@ public:
 		auto in_grad_slice = out_sample_aliaser(gradient_input, s * mini_batch * out_sample_size);
 		const tensor *grad_input = &in_grad_slice.get();
 		for(;;) {
-			// Retrieve the interation's network
+			// Retrieve the iteration's network
 			auto &fnet = forward_nets[s];
 
-			// Get the input tensor, the same use in forward operation
+			// Get the input tensor, the same used in forward operation
 			auto sample_input = in_sample_aliaser(in, s * mini_batch * in_sample_size);
 
 			// Do the backpropagation in the inner network and get the output.
@@ -944,10 +873,10 @@ using rnn = add_layer<rnn_<INTERNALS, num_outputs>, SUBNET>;
 //
 template <unsigned long num_outputs>
 using inner_lstm_mut1_ =
-	add_prev4<mul_prev<tag_rnn_memory, one_minus<skip3<
-	tag4<mul_prev<tag3, htan<add_prev<tag2, htan<skip_rnn_input<
+	add_prev4<mult_prev<tag_rnn_memory, one_minus<skip3<
+	tag4<mult_prev<tag3, htan<add_prev<tag2, htan<skip_rnn_input<
 	tag3<sig<fc<num_outputs, skip_rnn_input<
-	tag2<fc<num_outputs, mul_prev<tag_rnn_memory, sig<add_prev1<fc_no_bias<num_outputs, skip_rnn_input<
+	tag2<fc<num_outputs, mult_prev<tag_rnn_memory, sig<add_prev1<fc_no_bias<num_outputs, skip_rnn_input<
 	tag1<fc<num_outputs,
 	rnn_subnet_base
 	>>>>>>>>>>>>>>>>>>>>>>>;
@@ -978,11 +907,11 @@ using lstm_mut1 = rnn<num_outputs, inner_lstm_mut1_<num_outputs>, SUBNET>;
 //
 template <unsigned long num_outputs>
 using inner_lstm_mut2_ =
-	add_prev1<mul_prev<tag_rnn_memory, one_minus<skip2<
-	tag1<mul_prev<tag2, htan<add_prev4<fc<num_outputs, skip_rnn_input<
+	add_prev1<mult_prev<tag_rnn_memory, one_minus<skip2<
+	tag1<mult_prev<tag2, htan<add_prev4<fc<num_outputs, skip_rnn_input<
 	tag2<sig<add_prev3<fc<num_outputs, skip_rnn_memory<
 	tag3<fc_no_bias<num_outputs, skip_rnn_input<
-	tag4<fc_no_bias<num_outputs, mul_prev<tag_rnn_memory, sig<add_prev<tag_rnn_input, fc<num_outputs,
+	tag4<fc_no_bias<num_outputs, mult_prev<tag_rnn_memory, sig<add_prev<tag_rnn_input, fc<num_outputs,
 	rnn_subnet_base
 	>>>>>>>>>>>>>>>>>>>>>>>>;
 
@@ -1008,11 +937,11 @@ using lstm_mut2 = rnn<num_outputs, inner_lstm_mut2_<num_outputs>, SUBNET>;
 //
 template <unsigned long num_outputs>
 using inner_lstm_mut3_ =
-	add_prev1<mul_prev<tag_rnn_memory, one_minus<skip2<
-	tag1<mul_prev<tag2, htan<add_prev4<fc<num_outputs, skip_rnn_input<
+	add_prev1<mult_prev<tag_rnn_memory, one_minus<skip2<
+	tag1<mult_prev<tag2, htan<add_prev4<fc<num_outputs, skip_rnn_input<
 	tag2<sig<add_prev3<fc<num_outputs, skip_rnn_input<
 	tag3<fc_no_bias<num_outputs, htan<skip_rnn_memory<
-	tag4<fc_no_bias<num_outputs, mul_prev<tag_rnn_memory, sig<add_prev5<fc<num_outputs, skip_rnn_input<
+	tag4<fc_no_bias<num_outputs, mult_prev<tag_rnn_memory, sig<add_prev5<fc<num_outputs, skip_rnn_input<
 	tag5<fc_no_bias<num_outputs,
 	rnn_subnet_base
 	>>>>>>>>>>>>>>>>>>>>>>>>>>>>;
@@ -1040,8 +969,8 @@ using lstm_mut3 = rnn<num_outputs, inner_lstm_mut3_<num_outputs>, SUBNET>;
 //
 template <unsigned long num_outputs>
 using inner_gru_ =
-	add_prev1<mul_prev<tag2, htan<add_prev5<fc<num_outputs, skip_rnn_input<
-	tag1<mul_prev<tag_rnn_memory, skip3<
+	add_prev1<mult_prev<tag2, htan<add_prev5<fc<num_outputs, skip_rnn_input<
+	tag1<mult_prev<tag_rnn_memory, skip3<
 	tag2<one_minus<
 	tag3<sig<add_prev4<fc<num_outputs, skip_rnn_input<
 	tag4<fc_no_bias<num_outputs, skip_rnn_memory<
@@ -1084,10 +1013,10 @@ template <typename SUBNET> using tag11 = add_tag_layer<11, SUBNET>;
 template <unsigned long num_outputs>
 using inner_lstm1_ =
 	concat2<tag1, tag11,
-	tag11<mul_prev<tag7, htan<skip1<
-	tag1<add_prev3<mul_prev<tag5, sig<add_prev2<fc<num_outputs, skip9<
+	tag11<mult_prev<tag7, htan<skip1<
+	tag1<add_prev3<mult_prev<tag5, sig<add_prev2<fc<num_outputs, skip9<
 	tag2<fc_no_bias<num_outputs, skip_rnn_input<
-	tag3<mul_prev<tag10, sig<add_prev4<fc_high_bias<num_outputs, skip9<
+	tag3<mult_prev<tag10, sig<add_prev4<fc_high_bias<num_outputs, skip9<
 	tag4<fc_no_bias<num_outputs, skip_rnn_input<
 	tag5<htan<add_prev6<fc<num_outputs, skip9<
 	tag6<fc_no_bias<num_outputs, skip_rnn_input<
@@ -1130,10 +1059,10 @@ using lstm1 = split_right<rnn<2 * num_outputs, inner_lstm1_<num_outputs>, SUBNET
 template <unsigned long num_outputs>
 using inner_lstm2_ =
 	concat2<tag1, tag11,
-	tag11<mul_prev<tag7, htan<skip1<
-	tag1<add_prev3<mul_prev<tag5, sig<add_prev2<fc<num_outputs, skip9<
+	tag11<mult_prev<tag7, htan<skip1<
+	tag1<add_prev3<mult_prev<tag5, sig<add_prev2<fc<num_outputs, skip9<
 	tag2<fc_no_bias<num_outputs, skip_rnn_input<
-	tag3<mul_prev<tag10, sig<add_prev4<fc_high_bias<num_outputs, skip9<
+	tag3<mult_prev<tag10, sig<add_prev4<fc_high_bias<num_outputs, skip9<
 	tag4<fc_no_bias<num_outputs, skip_rnn_input<
 	tag5<htan<add_prev6<fc<num_outputs, skip9<
 	tag6<fc_no_bias<num_outputs, skip_rnn_input<
