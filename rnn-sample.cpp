@@ -13,12 +13,11 @@ const unsigned ab_size = 64;
 
 using net_type =
 	loss_multiclass_log<
-	fc<ab_size,
-	lstm_mut1<64,
-	lstm_mut1<64,
-	fc<64,
+	fc<ab_size, lstm_mut1<128,
+	fc<128, lstm_mut1<128,
+	fc<128,
 	input_one_hot<char, ab_size>
->>>>>;
+>>>>>>;
 
 void train(std::vector<char>& input, std::vector<unsigned long>& labels)
 {
@@ -46,7 +45,7 @@ void train(std::vector<char>& input, std::vector<unsigned long>& labels)
 		slices.push_back(slices.size() * seq_size);
 	}
 
-	std::mt19937 gen(std::random_device{}());
+	std::random_device gen;
 	std::shuffle(slices.begin(), slices.end(), gen);
 
 	std::vector<char> b_input;
