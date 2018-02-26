@@ -12,12 +12,13 @@ const unsigned seq_size = 100;
 const unsigned mini_batch_size = 500;
 const unsigned ab_size = 64;
 
+const unsigned layer_size = 128;
+
 using net_type =
 	loss_multiclass_log<
-	fc<ab_size, lstm_mut1<128,
-	fc<128, lstm_mut1<128,
-	fc<128,
-	input_one_hot<char, ab_size>
+	fc<ab_size, lstm_mut1<layer_size,
+	fc<layer_size, lstm_mut1<layer_size,
+	fc<layer_size, input_one_hot<char, ab_size>
 >>>>>>;
 
 void train(std::vector<char>& input, std::vector<unsigned long>& labels)
@@ -27,11 +28,24 @@ void train(std::vector<char>& input, std::vector<unsigned long>& labels)
 
 	visit_rnns([](auto& n) { n.set_mini_batch_size(mini_batch_size); }, net);
 
-	trainer.set_learning_rate_shrink_factor(0.5);
+	trainer.set_learning_rate(0.1);
+	trainer.set_learning_rate_shrink_factor(0.989656656415207);
+	trainer.set_iterations_without_progress_threshold(3);
+
+	/*
+	trainer.set_learning_rate(0.1);
+	trainer.set_learning_rate_shrink_factor(0.84);
+	trainer.set_iterations_without_progress_threshold(50);
+	*/
+
+	/*
 	trainer.set_learning_rate(0.01);
+	trainer.set_learning_rate_shrink_factor(0.5);
+	trainer.set_iterations_without_progress_threshold(200);
+	*/
+
 	//trainer.set_min_learning_rate(1e-9);
 	//trainer.set_learning_rate_shrink_factor(0.4);
-	trainer.set_iterations_without_progress_threshold(200);
 
 	trainer.be_verbose();
 
