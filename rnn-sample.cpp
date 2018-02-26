@@ -1,10 +1,11 @@
+#include "rnn.h"
+
 #include <fenv.h>
 
 #include <vector>
 #include <fstream>
 #include <random>
 
-#include "rnn.h"
 #include "input_one_hot.h"
 
 const unsigned seq_size = 100;
