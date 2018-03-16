@@ -98,10 +98,10 @@ void train(std::vector<char>& input, std::vector<unsigned long>& labels)
 	serialize("shakespeare_network.dat") << net;
 }
 
-void run_test(int label_map[], char fmap[])
+void run_test(int label_map[], char fmap[], float temperature)
 {
 	// Net with loss layer replaced with softmax
-	softmax<net_type::subnet_type> generator;
+	softmax<multiply<net_type::subnet_type>> generator(multiply_(1.0/temperature));
 
 	// Load the network
 	{
@@ -120,7 +120,7 @@ void run_test(int label_map[], char fmap[])
 		}
 
 		// Replace loss layer with softmax
-		generator.subnet() = net.subnet();
+		generator.subnet().subnet() = net.subnet();
 	}
 
 	// Configure to evaluate, not to train
@@ -209,8 +209,12 @@ int main(int argc, char *argv[])
 
 	if(argc > 1) {
 		if(strcmp(argv[1], "sample") == 0) {
-			std::cerr << "Sampling." << std::endl;
-			run_test(label_map, fmap);
+			float temperature = 1.0;
+			if(argc > 2) {
+				temperature = atof(argv[2]);
+			}
+			std::cerr << "Sampling, temperature " << temperature << ".\n";
+			run_test(label_map, fmap, temperature);
 			return 0;
 		} else if (strcmp(argv[1], "train") != 0) {
 			std::cerr << "Error: invalid command.\nChoose one of\n " << argv[0] << " sample\n " << argv[0] << " train" << std::endl;
