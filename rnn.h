@@ -877,7 +877,7 @@ using inner_lstm_mut1_ =
 	tag4<mult_prev<tag3, htan<add_prev<tag2, htan<skip_rnn_input<
 	tag3<sig<fc<num_outputs, skip_rnn_input<
 	tag2<fc<num_outputs, mult_prev<tag_rnn_memory, sig<add_prev1<fc_no_bias<num_outputs, skip_rnn_input<
-	tag1<fc<num_outputs,
+	tag1<fc_high_bias<num_outputs,
 	rnn_subnet_base
 	>>>>>>>>>>>>>>>>>>>>>>>;
 
