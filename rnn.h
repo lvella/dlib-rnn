@@ -201,144 +201,6 @@ class fc_high_bias_:
 template <unsigned long num_outputs, typename SUBNET>
 using fc_high_bias = add_layer<fc_high_bias_<num_outputs>, SUBNET>;
 
-enum split_side
-{
-	SPLIT_LEFT = 0,
-	SPLIT_RIGHT = 1
-};
-
-template <split_side SIDE, unsigned COUNT = 0>
-class split_
-{
-public:
-	template <typename SUBNET>
-	void setup (const SUBNET& sub)
-	{
-		auto &in = sub.get_output();
-		if(COUNT == 0) {
-			assert(in.k() % 2 == 0);
-			out_k = in.k() / 2;
-			in_offset = out_k * SIDE;
-		} else {
-			out_k = COUNT;
-			if(SIDE == SPLIT_LEFT) {
-				in_offset_k = 0;
-			} else {
-				in_offset_k = in.k() - out_k;
-			}
-		}
-		out_sample_size = out_k * in.nr() * in.nc();
-		in_sample_size = in.k() * in.nr() * in.nc();
-		in_offset = in_offset_k * in.nr() * in.nc();
-	}
-
-	template <typename SUBNET>
-	void forward(const SUBNET& sub, dlib::resizable_tensor& data_output)
-	{
-		auto &in = sub.get_output();
-
-		data_output.set_size(in.num_samples(), out_k, in.nr(), in.nc());
-
-		tt::copy_tensor(data_output, 0, in, in_offset_k, out_k);
-	}
-
-	template <typename SUBNET>
-	void backward(
-	    const tensor& gradient_input,
-	    SUBNET& sub,
-	    tensor& /* params_grad */)
-	{
-		auto &grad_out = sub.get_gradient_input();
-
-		// TODO: find a way to do it using tensor tools...
-		const float *in_data = gradient_input.host();
-		float *out_data = grad_out.host();
-
-		size_t num_samples = gradient_input.num_samples();
-
-		for(size_t s = 0; s < num_samples; ++s) {
-			const float *in = &in_data[s * out_sample_size];
-			float *out = &out_data[s * in_sample_size];
-			for(size_t i = 0; i < out_sample_size; ++i) {
-				out[i + in_offset] += in[i];
-			}
-		}
-	}
-
-	const tensor& get_layer_params() const
-	{
-		return params;
-	}
-
-	tensor& get_layer_params()
-	{
-		return params;
-	}
-
-	friend void serialize(const split_& net, std::ostream& out)
-	{
-		serialize("split_", out);
-		serialize(int(SIDE), out);
-		serialize(net.out_k, out);
-		serialize(net.in_offset, out);
-		serialize(net.in_offset_k, out);
-		serialize(net.in_sample_size, out);
-		serialize(net.out_sample_size, out);
-	}
-
-	friend void deserialize(split_& net, std::istream& in)
-	{
-		std::string version;
-		deserialize(version, in);
-		if (version != "split_")
-			throw serialization_error("Unexpected version '"+version+"' found while deserializing split_.");
-		int side = 0;
-		deserialize(side, in);
-		if (SIDE != split_side(side))
-			throw serialization_error("Wrong side found while deserializing split_");
-		deserialize(net.out_k, in);
-		deserialize(net.in_offset, in);
-		deserialize(net.in_offset_k, in);
-		deserialize(net.in_sample_size, in);
-		deserialize(net.out_sample_size, in);
-	}
-
-	friend std::ostream& operator<<(std::ostream& out, const split_& item)
-	{
-		out << "split_" << side_str();
-		return out;
-	}
-
-	friend void to_xml(const split_& item, std::ostream& out)
-	{
-		out << "<split_" << side_str() << " />\n";
-	}
-
-private:
-	static const char* side_str()
-	{
-		return (SIDE == SPLIT_LEFT) ? "left" : "right";
-	}
-
-	size_t out_k;
-	size_t in_offset, in_offset_k;
-	size_t in_sample_size, out_sample_size;
-
-	dlib::resizable_tensor params; // unused
-};
-
-template <typename SUBNET>
-using split_left = add_layer<split_<SPLIT_LEFT>, SUBNET>;
-
-template <typename SUBNET>
-using split_right = add_layer<split_<SPLIT_RIGHT>, SUBNET>;
-
-template <unsigned COUNT, typename SUBNET>
-using split_left_count = add_layer<split_<SPLIT_LEFT, COUNT>, SUBNET>;
-
-template <unsigned COUNT, typename SUBNET>
-using split_right_count = add_layer<split_<SPLIT_RIGHT, COUNT>, SUBNET>;
-
 /* An implementation of EXAMPLE_INPUT_LAYER that
  * does nothing. Meant to be used as input of
  * the inner network of rnn_.
@@ -1022,13 +884,13 @@ using inner_lstm1_ =
 	tag6<fc_no_bias<num_outputs, skip_rnn_input<
 	tag7<htan<add_prev8<fc<num_outputs, skip9<
 	tag8<fc_no_bias<num_outputs, skip_rnn_input<
-	tag9<split_right<skip_rnn_memory<
-	tag10<split_left<
+	tag9<extract<num_outputs/2, num_outputs/2, 1, 1, skip_rnn_memory<
+	tag10<extract<0, num_outputs/2, 1, 1,
 	rnn_subnet_base
 	>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>;
 
 template <unsigned long num_outputs, typename SUBNET>
-using lstm1 = split_right<rnn<2 * num_outputs, inner_lstm1_<num_outputs>, SUBNET>>;
+using lstm1 = extract<num_outputs, num_outputs, 1, 1, rnn<2 * num_outputs, inner_lstm1_<num_outputs>, SUBNET>>;
 
 // Basic Long Short-Term Memory (LSTM), as given in the blog post:
 // https://colah.github.io/posts/2015-08-Understanding-LSTMs/
@@ -1068,13 +930,13 @@ using inner_lstm2_ =
 	tag6<fc_no_bias<num_outputs, skip_rnn_input<
 	tag7<sig<add_prev8<fc<num_outputs, skip9<
 	tag8<fc_no_bias<num_outputs, skip_rnn_input<
-	tag9<split_right<skip_rnn_memory<
-	tag10<split_left<
+	tag9<extract<num_outputs/2, num_outputs/2, 1, 1, skip_rnn_memory<
+	tag10<extract<0, num_outputs/2, 1, 1,
 	rnn_subnet_base
 	>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>;
 
 template <unsigned long num_outputs, typename SUBNET>
-using lstm2 = split_right<rnn<2 * num_outputs, inner_lstm2_<num_outputs>, SUBNET>>;
+using lstm2 =  extract<num_outputs, num_outputs, 1, 1, rnn<2 * num_outputs, inner_lstm2_<num_outputs>, SUBNET>>;
 
 
 // To be used in building the input, because rnn_ expect
