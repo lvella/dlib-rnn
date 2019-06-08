@@ -2,7 +2,7 @@ OPT_FLAGS = -Ofast -flto=8 -fno-fat-lto-objects -march=native -mtune=native
 #OPT_FLAGS = -g
 
 CFLAGS = -std=c++17 `pkg-config dlib-1 --cflags` -pthread $(OPT_FLAGS)
-LDFLAGS = $(CFLAGS) `pkg-config dlib-1 --libs`
+LDFLAGS = $(CFLAGS) `pkg-config dlib-1 --libs` -lopenblas
 
 rnn-sample: rnn-sample.o
 	g++ -o rnn-sample rnn-sample.o $(LDFLAGS)
