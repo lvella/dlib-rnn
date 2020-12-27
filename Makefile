@@ -1,4 +1,4 @@
-OPT_FLAGS = -Ofast -flto=8 -fno-fat-lto-objects -march=native -mtune=native
+OPT_FLAGS = -Ofast -march=native -mtune=native
 #OPT_FLAGS = -g
 
 CFLAGS = -std=c++17 `pkg-config dlib-1 --cflags` -pthread $(OPT_FLAGS)
